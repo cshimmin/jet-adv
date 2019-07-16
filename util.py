@@ -178,3 +178,46 @@ def ecf_tf(N, beta, x, normalized=False):
         result = result / tf.pow(ecf_tf(1,beta,x,normalized=False), N)
 
     return tf.expand_dims(result, axis=-1)
+
+# Take a list of (pT,eta,phi) values for constituents, and
+# calculate the jet-level (pT, eta, phi, m)
+def jet_tf(x):
+    #this one takes _consts without any modification.
+    pT,eta,phi=tf.split(x,3,axis=2) #axis = 2 because it is a list of particles, then a list of properties per particle
+    jpx = K.sum(pT*tf.cos(phi),axis=1)
+    jpy = K.sum(pT*tf.sin(phi),axis=1)
+    jpz = K.sum(pT*(0.5*(tf.exp(eta)-tf.exp(-eta))),axis=1) #no tf.sinh in my version
+    jpE = K.sum(pT*(0.5*(tf.exp(eta)+tf.exp(-eta))),axis=1) #no tf.cosh in my version
+
+    jet_pT2 = tf.square(jpx) + tf.square(jpy)
+    jet_p = tf.sqrt(tf.square(jpz) + jet_pT2)
+    jet_mass = tf.sqrt(jpE**2-jet_pT2-jpz**2) #m
+    jet_pT = tf.sqrt(jet_pT2)
+    jet_eta = tf.atanh(jpz/jet_p)
+    jet_phi = tf.atan2(jpy, jpx)
+    
+    
+    return tf.concat([jet_pT, jet_eta, jet_phi, jet_mass], axis=-1)
+
+# Layer to compute jet kinematics (pT, eta, phi, m) as well as
+# C2 and D2 from an input list of constituents (pT, eta, phi)
+class JetLayer(layers.Layer):
+    def __init__(self, beta=1, **kwargs):
+        super(JetLayer, self).__init__(**kwargs)
+        
+        self.beta = beta
+    
+    def call(self, x):
+        ecf1 = util.ecf_tf(1, self.beta, x, normalized=False)
+        ecf2 = util.ecf_tf(2, self.beta, x, normalized=False)
+        ecf3 = util.ecf_tf(3, self.beta, x, normalized=False)
+
+        c2 = ecf3 * ecf1 / tf.square(ecf2)
+        d2 = ecf3 * tf.pow(ecf1, 3) / tf.pow(ecf2, 3)
+        
+        jet_vars = layers.Lambda(util.jet_tf)(x)
+        
+        return tf.concat([jet_vars, c2, d2], axis=-1)
+    
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0],6,)
