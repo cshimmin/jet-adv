@@ -3,6 +3,7 @@ import pandas as pd
 import itertools as it
 import tensorflow as tf
 import keras.backend as K
+import keras.layers as layers
 
 from pyjet import cluster,DTYPE_PTEPM
 
