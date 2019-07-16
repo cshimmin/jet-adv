@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 import itertools as it
+import tensorflow as tf
+import keras.backend as K
 
 from pyjet import cluster,DTYPE_PTEPM
 
@@ -9,7 +11,7 @@ def load_data(nevt=50000):
         d = pd.DataFrame(np.load('events_%d.npy'%nevt))
     except FileNotFoundError:
         d = pd.read_hdf("events.h5")[:nevt]
-        np.save('events_%d.npy'%nevt)
+        np.save('events_%d.npy'%nevt, d)
 
     is_bg = (d[2100] == 0)
     is_sig = (d[2100] == 1)
@@ -78,7 +80,7 @@ def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, gev=False, min_ntrk=None
 # calculates ECF for a batch of jet constituents.
 # x should have a shape like [batch_axis, particle_axis, 3]
 # the last axis should contain (pT, eta, phi)
-def ecf_numpy(N, beta, x):
+def ecf_numpy(N, beta, x, normalized=False):
     pt = x[:,:,0]
     eta = x[:,:,1:2]
     phi = x[:,:,2:]
@@ -86,7 +88,10 @@ def ecf_numpy(N, beta, x):
     if N == 0:
         return np.ones(x.shape[0])
     elif N == 1:
-        return np.sum(pt, axis=-1)
+        if normalized:
+            return np.ones(x.shape[0])
+        else:
+            return np.sum(pt, axis=-1)
     
     # pre-compute the R_ij matrix
     R = np.concatenate([np.sqrt((eta[:,i:i+1]-eta)**2+(phi[:,i:i+1]-phi)**2) for i in range(x.shape[1])], axis=-1)
@@ -103,9 +108,9 @@ def ecf_numpy(N, beta, x):
         eps[idx] = 1
         
     if N == 2:
-        return np.einsum('ij,...i,...j,...ij',eps,pt,pt,R_beta)
+        result = np.einsum('ij,...i,...j,...ij',eps,pt,pt,R_beta)
     elif N == 3:
-        return np.einsum('ijk,...i,...j,...k,...ij,...ik,...jk',eps,pt,pt,pt,R_beta,R_beta,R_beta)
+        result =  np.einsum('ijk,...i,...j,...k,...ij,...ik,...jk',eps,pt,pt,pt,R_beta,R_beta,R_beta)
     else:
         # just for fun, the general case...
         # use ascii chars a...z for einsum indices
@@ -115,4 +120,61 @@ def ecf_numpy(N, beta, x):
             idx_expression += ',...%s%s'%(a,b)
         #print(idx_expression)
         args = (eps,) + (pt,)*N + (R_beta,)*(N*(N-1)//2)
-        return np.einsum(idx_expression, *args)
+        result = np.einsum(idx_expression, *args)
+
+    if normalized:
+        result = result / ecf_numpy(1,beta,x,normalized=False)**N
+
+    return result
+
+# calculates ECF for a batch of jet constituents.
+# x should have a shape like [batch_axis, particle_axis, 3]
+# the last axis should contain (pT, eta, phi)
+def ecf_tf(N, beta, x, normalized=False):
+    pt = x[:,:,0]
+    eta = x[:,:,1:2]
+    phi = x[:,:,2:3]
+
+    if N == 0:
+        return tf.ones((x.shape[0],1))
+    elif N == 1:
+        if normalized:
+            return tf.ones((x.shape[0],1))
+        else:
+            return tf.reduce_sum(pt, axis=-1, keepdims=True)
+    
+    # pre-compute the R_ij matrix
+    R = tf.concat([tf.sqrt((eta[:,i:i+1]-eta)**2+(phi[:,i:i+1]-phi)**2) for i in range(x.shape[1])], axis=-1)
+    # note, if dR = 0, these are either diagonal or padded entries that will get killed by pT=0 terms.
+    # set these entries to some positive number to avoid divide-by-zero when beta<0
+    R = tf.clip_by_value(R, 1e-6, 999)
+    
+    # and raise it to the beta power for use in the product expression
+    R_beta = tf.pow(R,beta)
+    
+    # indexing tensor, returns 1 if i>j>k...
+    eps = np.zeros((x.shape[1],)*N)
+    for idx in it.combinations(range(x.shape[1]), r=N):
+        eps[idx] = 1
+    eps = tf.constant(eps, dtype=K.floatx())
+        
+    if N == 2:
+        result = tf.einsum('ij,ai,aj,aij->a',eps,pt,pt,R_beta)
+    elif N == 3:
+        result = tf.einsum('ijk,ai,aj,ak,aij,aik,ajk->a',eps,pt,pt,pt,R_beta,R_beta,R_beta)
+    else:
+        # just for fun, the general case...
+        # use ascii chars b...z for einsum indices ('a' is for the batch axis)
+        letters = [chr(asc) for asc in range(98,98+N)]
+        idx_expression = ''.join(letters) +',' + ','.join('a%s'%c for c in letters)
+        for a,b in it.combinations(letters, r=2):
+            idx_expression += ',a%s%s'%(a,b)
+        idx_expression += '->a'
+        #print(idx_expression)
+        args = (eps,) + (pt,)*N + (R_beta,)*(N*(N-1)//2)
+        result = tf.einsum(idx_expression, *args)
+
+    if normalized:
+        result = result / tf.pow(ecf_tf(1,beta,x,normalized=False), N)
+
+    return tf.expand_dims(result, axis=-1)
