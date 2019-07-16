@@ -203,22 +203,33 @@ def jet_tf(x):
 # Layer to compute jet kinematics (pT, eta, phi, m) as well as
 # C2 and D2 from an input list of constituents (pT, eta, phi)
 class JetLayer(layers.Layer):
-    def __init__(self, beta=1, **kwargs):
+    def __init__(self, beta=1, jet_vars_shift=None, jet_vars_scale=None, **kwargs):
         super(JetLayer, self).__init__(**kwargs)
         
         self.beta = beta
+        self.jet_vars_shift = jet_vars_shift
+        self.jet_vars_scale = jet_vars_scale
     
     def call(self, x):
-        ecf1 = util.ecf_tf(1, self.beta, x, normalized=False)
-        ecf2 = util.ecf_tf(2, self.beta, x, normalized=False)
-        ecf3 = util.ecf_tf(3, self.beta, x, normalized=False)
+        ecf1 = ecf_tf(1, self.beta, x, normalized=False)
+        ecf2 = ecf_tf(2, self.beta, x, normalized=False)
+        ecf3 = ecf_tf(3, self.beta, x, normalized=False)
 
         c2 = ecf3 * ecf1 / tf.square(ecf2)
         d2 = ecf3 * tf.pow(ecf1, 3) / tf.pow(ecf2, 3)
         
-        jet_vars = layers.Lambda(util.jet_tf)(x)
+        jet_vars = layers.Lambda(jet_tf)(x)
         
-        return tf.concat([jet_vars, c2, d2], axis=-1)
+        jet_vars = tf.concat([jet_vars, c2, d2], axis=-1)
+        
+        if self.jet_vars_shift is not None:
+            shift = tf.constant(np.reshape(self.jet_vars_shift, (1,-1)))
+            jet_vars = jet_vars - shift
+        if self.jet_vars_scale is not None:
+            scale = tf.constant(np.reshape(self.jet_vars_scale, (1,-1)))
+            jet_vars = jet_vars/scale
+        
+        return jet_vars
     
     def compute_output_shape(self, input_shape):
         return (input_shape[0],6,)
