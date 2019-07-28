@@ -1,0 +1,77 @@
+\documentclass[reprint,nofootinbib,...]{revtex4-1} 
+%\documentclass[draft,nofootinbib,...]{revtex4-1} 
+\usepackage{amsmath}%
+\usepackage{amsthm,amssymb}
+\usepackage{graphicx}
+\usepackage{epstopdf}
+\usepackage{xcolor}
+\usepackage{algcompatible}
+\usepackage[size=small]{caption}
+\usepackage{etoolbox}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage[utf8]{inputenc}
+\usepackage[colorinlistoftodos]{todonotes}
+
+\usepackage[hyperfootnotes=true]{hyperref}
+\hypersetup{
+ colorlinks=true,
+ citecolor=blue,
+ linkcolor=blue,
+ urlcolor=blue}
+
+%%% ----------------------------------------------------------------------
+\begin{document}
+
+%Title of paper
+\title{AI Safety for High Energy Physics}
+
+\author{Benjamin Nachman}
+\email{bpnachman@lbl.gov}
+
+\affiliation{Physics Division, Lawrence Berkeley National Laboratory, Berkeley, CA 94720, USA}
+
+\author{Chase Shimmin}
+\email{chase.shimmin@yale.edu}
+
+\affiliation{Department of Physics, Yale University, New Haven, CT 06511, USA}
+
+\begin{abstract}
+blah
+\end{abstract}
+
+\date{\today}
+\maketitle
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+In collider-based high-energy physics, simulations modeling length scales from sub-nuclear reactions all the way to macroscopic scales are critical for scientific inference by connecting fundamental theories to observable quantities.  These simulations are excellent, but are an approximation to nature and therefore must be calibrated with data. In the quest for new particles, calibrated simulations of the Standard Model (SM) are compared with data to search for potential deviations.
+
+In the traditional paradigm, a discriminating observable $m$ is used to isolate a region of phase space $m<c$ where contributions from new partitcles are expected to be small compared with the SM background procsses (`c.  In this \textit{control region}, the predicted cross-section is scaled to match the data and then the scaled differential cross-section from simulation is used to estimate the Standard Model contribution in a \text{signal region} with $m\gg c$.  Theoretical uncertainties on the extrapolation are estimated by repeating this procedure with a variety of simulations.
+
+Deep learning offers a new set of tools for seaking out new particles using high-dimensional, low-level information. A growing number of searches at the Large Hadron Collider are using deep learning methods to construct $m$. The control region method is the baseline approach for estimating the SM background in the nacient deep learning era.
+
+A potential problem of the control region method with deep learning is that the calibration procedure may not sufficiently probe the high dimensionality of the feature space.  For example, if O(1000) dimensions are used for trainng a neural network, but only O(1) simulation variations are considered for the uncertainty on the calibration (as is common), then the prediction in the signal region may be incorrect: the uncertainty may be much smaller than the potential bias.
+
+In this work, we use methods from AI safety to diagnose the sensitivity of the current methodology to 
+
+To illustrate, introduce example and simulation, ...
+
+As a first step, FGSM, ...
+
+(Talk about IRC safe inputs with FGSM, ...)
+
+While the FGSM illustrated that single events can be attacked, ...
+
+Talk about IRC safe inputs, ...
+
+Conclusion...
+
+
+\section*{ACKNOWLEDGMENTS}
+
+This work is supported by the DOE under contract DE-AC02-05CH11231. 
+
+\bibliography{myrefs}
+
+\end{document}
