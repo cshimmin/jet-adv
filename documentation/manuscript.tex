@@ -21,6 +21,8 @@
  urlcolor=blue}
  
  \DeclareMathOperator{\sign}{sign}
+ \DeclareMathOperator*{\argmin}{argmin}
+ \DeclareMathOperator*{\E}{\mathbb{E}}
  
 % some placeholders for various parameters of the network, dataset, experiments, etc
 \newcommand{\nconst}{128}       % number of jet constituents
@@ -32,9 +34,13 @@
 
 \newcommand{\aucCLS}{0.88}    % validation AUC of benchmark classifier
 
-\newcommand{\epsilsonpt}{0.99}
+\newcommand{\epsilsonpt}{0.99} % Epsilon values for pt/eta/phi in FGSM attack
 \newcommand{\epsiloneta}{0.99}
 \newcommand{\epsilonphi}{0.99}
+
+%adversarial network parameters
+\newcommand{\nlayerADV}{3}
+\newcommand{\nunitsADV}{512}
 
 % convenience defs
 \newcommand{\pt}{p_\mathrm{T}} % needs mathmode
@@ -144,6 +150,8 @@ The output layer is a single neuron with a sigmoid activation, and the loss func
 The classifier network is implemented using the Keras~\cite{keras} and tensorflow~\cite{tensorflow} libraries, and is trained with the Adam~\cite{adam} optimizer on \ntrain\ events with a 50\% signal/background split, and validated on \nval\ events.
 Training proceeds until the validation loss begins to diverge from the training loss, resulting in a final network with a validation AUC of \aucCLS.
 
+\todo{rewrite to include information about second benchmark classifier that takes in jet-level observables (pT, eta, phi, mass, D2)}
+
 \section{Methods}
 To demonstrate the sensitivity of HDLL networks to small perturbations to the input observables, we subject our benchmark network $f$ to an \textit{adversarial attack}.
 A typical adversarial attack works by defining a loss function between the target network's response to some input(s) and the desired output.
@@ -169,6 +177,7 @@ In such a scenario, an experimental analysis optimized using the simulated signa
 This in turn could lead to overconfidently excluding a theoretical hypothesis, or even missing a discovery of new physics altogether.
 
 \subsection{Fast Gradient Sign Method}
+\label{subsec:fgsm}
 The FGSM method~\cite{DBLP:journals/corr/GoodfellowSS14} works by taking an individual jet $J_i$ and regressing the loss function to compute a \textit{bounded} perturbation $\delta J_i$, such that network's response to the input $J_i + \delta J_i$ tends towards some desired value.
 Specifically, the perturbation is given by:
 \begin{equation}
@@ -188,11 +197,21 @@ Generally the success of the FGSM attack will depend on the size of the maximal 
 
 \subsection{Adversarial Network Method}
 
+In this approach, we train a second neural network $g$ for which both input and output are $\nconst\times 3$ tensors.
+The goal is to train $g$ to map $J\mapsto\delta J$, for an arbitrary jet such that the classifier network $f$ will perceive the input $J+\delta J$ as a background jet.
+The network $g$ is trained by minimizing the loss function:
+\begin{multline}
+g = \argmin_{g'}\E_{J\sim data} [ \mathcal{L}_{xe}(f(J+g'(J)), y_\mathrm{bg}) \\ + \lambda\mathcal{L}_{obs}(J, g'(J))] \,.
+\end{multline}
+Here, $\mathcal{L}_{xe}$ is the usual binary crossentropy loss function, and $\mathcal{L}_{obs}$ is in our example a family of loss functions that minimize the difference of jet-level observables between $J$ and $J+\delta J$.
+$\mathcal{L}_{obs}$ may also contain terms involving only $g'(J)$, in particular, it may include $L_2$ activity regularizers that encourage the perturbations output by network $g$ to be small.
+The parameter $\lambda$ controls how aggressively the adversary $g$ will attempt to confound the classifier $f$, versus preserving the jet-level observables.
 
+In our experiments, $g$ is a fully-connected network with \nlayerADV\ hidden layers, each with \nunitsADV\ units and ReLU activation.
+The final output layer has $\nconst\times 3$ units, with $\tanh$ activations.
+Analogously to the bounding parameters $\epsilon$ in \ref{subsec:fgsm}, the outputs of the final layer are bounded by applying a $\tanh$ activation functions and the axes corresponding to $\pt$, $\eta$, and $\phi$ are scaled by parameters $\rho_{\pt}$, $\rho_\eta$, and $\rho_\phi$ respectively.
 
-A deep neural network $f(J_i)\mapsto [0,1]$ is trained in the usual way $f=\text{argmin}_{f'}\mathcal{L}(F'(J),y)$, $y\in\{0,1\}$, where $\mathcal{L}$ is the loss function (in this case, cross-entropy).
-Networks are trained with Keras~\cite{keras} using the Tensorflow~\cite{tensorflow} backend and optimized using Adam~\cite{adam}.
-To compare the sensitivity of a deep neural network trained directly on the natural high-dimensionality with traditional methods, a second network is trained whose first layer is a ratio of energy correlation functions~\cite{Larkoski:2013eya} known as $D_2$~\cite{Larkoski:2014gra}.
+%To compare the sensitivity of a deep neural network trained directly on the natural high-dimensionality with traditional methods, a second network is trained whose first layer is a ratio of energy correlation functions~\cite{Larkoski:2013eya} known as $D_2$~\cite{Larkoski:2014gra}.
 
 
 \section{Results}
