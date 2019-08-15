@@ -20,7 +20,9 @@
  linkcolor=blue,
  urlcolor=blue}
  
-% some placeholds for various parameters of the network, dataset, experiments, etc
+ \DeclareMathOperator{\sign}{sign}
+ 
+% some placeholders for various parameters of the network, dataset, experiments, etc
 \newcommand{\nconst}{128}       % number of jet constituents
 \newcommand{\ptcut}{1.3}           % leading jet pT cut
 \newcommand{\nlayerCLS}{3}     % number of layers in the target classifier
@@ -29,6 +31,10 @@
 \newcommand{\nval}{26k}            % number of validation samples
 
 \newcommand{\aucCLS}{0.88}    % validation AUC of benchmark classifier
+
+\newcommand{\epsilsonpt}{0.99}
+\newcommand{\epsiloneta}{0.99}
+\newcommand{\epsilonphi}{0.99}
 
 % convenience defs
 \newcommand{\pt}{p_\mathrm{T}} % needs mathmode
@@ -67,7 +73,9 @@ In addition to providing a pragmatic diagnostic, this work will hopefully begin 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+
 \section{Introduction}
+\label{sec:intro}
 %%% Note: having a hard time striking a balance between explaining how we do analysis at the LHC, so that other fields can understand the problem,
 %%% vs, keeping this short and generic enough to underscore how it applies other fields.
 Collider-based high-energy physics (HEP) relies critically on sophisticated simulations which model length scales from sub-nuclear reactions all the way to macroscopic detector-length scales in order to connect fundamental theories to experimentally-observable quantities.
@@ -104,7 +112,7 @@ This trend is also seen in related fields such as neutrino physics, where variou
 
 A potential problem arises when combining deep learning on HDLL features to the conventional simulation-based analysis paradigm.
 As noted above, physics simulation will in general differ from real observables, and while we are able to mitigate this effect by calibrating and validating certain physical observables (such as reconstructed particle states) in order to evaluate systematic effects, it may be experimentally infeasible to calibrate or even validate simulations of HDLL features.
-Moreover, recent developments in the area of AI safety have demonstrated that when neural networks operate on high-dimensional input spaces, it is generically possible to get arbitrary degradation of network performance by applying subtle deviations to the input features.
+Moreover, recent developments in the area of AI safety have demonstrated~\cite{Szegedy14intriguingproperties,DBLP:journals/corr/GoodfellowSS14} that when neural networks operate on high-dimensional input spaces, it is generically possible to get arbitrary degradation of network performance by applying subtle deviations to the input features.
 
 
 %This work uses methods from AI safety to diagnose the sensitivity of the current methodology to under-constrained feature spaces.
@@ -113,14 +121,14 @@ Moreover, recent developments in the area of AI safety have demonstrated that wh
 
 To illustrate this problem, we implement an adversarial attack that demonstrates small perturbations in detector-level measurements can have drastic effects on the performance of a neural network trained to identify signal-like events.
 This adversarial procedure can be conceptualized as a sort of \textit{demon}~\cite{TheLordKelvin} which intercedes between a physical process and the observation of that process, in such a way as to maximally confound a neural network while being minimally noticeable by experimental standards.
-While certainly no such demon exists, we propose a procedure based on this method as a diagnostic tool to evaluate the worst-case sensitivity of a deep network architecture to uncertainty in high-dimensional correlations.
+While certainly no such demon exists, we propose a procedure based on this concept as a diagnostic tool to evaluate the worst-case sensitivity of a deep network architecture to uncertainty in high-dimensional correlations.
 This bound may then be used either to demonstrate the a given network architecture is manifestly robust against HDLL systematics, or as a guiding metric to aid in the future development of more robust networks.
 
 \section{Benchmark Problem}
 
 As one of the first examples of high-dimensional deep learning in high-energy physics, jet classification~\cite{Larkoski:2017jix} is used as the prototypical example.
 Jets are collimated sprays of particles resulting from high energy quark and gluon fragmentation, which are clustered~\cite{Cacciari:2008gp} into groups that approximate physical states in the original hard scattering process.
-As such, one can represent a jet $J_i$ by the momenta of its $N_i$ constituent particles $\{(p_{T,ij},\eta_{ij},\phi_{ij})\}\in\mathbb{R}^{3N_i}$, ignoring particle masses and other quantum numbers\footnote{explain what $p_\mathrm{T}$, $\eta$, $phi$ are}.
+As such, one can represent a jet $J_i$ by the momenta of its $N_i$ constituent particles $\{(p_{T,ij},\eta_{ij},\phi_{ij})\}\in\mathbb{R}^{3N_i}$, ignoring particle masses and other quantum numbers\footnote{explain what $p_\mathrm{T}$, $\eta$, $\phi$ are}.
 A typical problem is to identify whether a jet originated from a quark/gluon state, or by the decay of some massive particle.
 We use the dataset simulated in~\cite{gregor_kasieczka_2019_2629073}, in which the background process is generic quark and gluon scattering, while the signal process is comprised of hypothetical massive particles with masses of $100$, $500$, or $3500\ \mathrm{GeV}$ which decay into quark pairs.
 Pythia~8~\cite{Sjostrand:2006za,Sjostrand:2007gs} and Delphes 3.4.1~\cite{deFavereau:2013fsa} are used to simulate the scattering process and detector response, respectively.
@@ -128,25 +136,68 @@ Jets are clustered using Fastjet~\cite{Cacciari:2011ma,Cacciari:2005hq} vis pyje
 Each event is required to have a jet with $p_\mathrm{T} > 1.3\ \mathrm{TeV}$, and only the leading jet is considered.
 
 Hence, we first train a benchmark classifier network $f$ which will be the target of our adversarial attack.
-The network takes as input a $\nconst\times3$ tensor $x$ corresponding to the constituent momenta of a jet.
+The network takes as input a $\nconst\times3$ tensor $x$ corresponding to the constituent momenta of a jet; the $\pt$ of each constituent is expressed in units of TeV, resulting a input dynamic range that is of order unity.
 Jets with more than $\nconst$ constituents are truncated by dropping the lowest-$\pt$ constituents; the tensors are padded with zeros for jets with fewer constituents.
 The inputs are fed into a fully-connected neural network with \nlayerCLS\ hidden layers, each with \nunitsCLS\ units and ReLU activation.
 The output layer is a single neuron with a sigmoid activation, and the loss function is the binary crossentropy between the network output $f(x)$ and the target labels $y$, in which $y=0$ corresponds to background events, and $y=1$ corresponds to signal.
 
-The classifier network is trained with the Adam~\cite{adam} optimizer on \ntrain\ events with a 50\% signal/background split, and validated on \nval\ events.
+The classifier network is implemented using the Keras~\cite{keras} and tensorflow~\cite{tensorflow} libraries, and is trained with the Adam~\cite{adam} optimizer on \ntrain\ events with a 50\% signal/background split, and validated on \nval\ events.
 Training proceeds until the validation loss begins to diverge from the training loss, resulting in a final network with a validation AUC of \aucCLS.
 
 \section{Methods}
-To demonstrate the sensitivity of existing methods to small perturbations to the input particles in high dimensions, a fast gradient sign method (FGSM) is deployed~\cite{DBLP:journals/corr/GoodfellowSS14}.  The idea is that individual jets are perturbed $J\mapsto \delta J_i$ based on the gradient of the classification loss.  Each jet is independently modified, which is an unlikely scenario for high-dimensional mis-modeling, but is a robust indication of a classifier's sensitivity to fixed small perturbations.  A universal modifier is discussed later.  A deep neural network $f(J_i)\mapsto [0,1]$ is trained in the usual way $f=\text{argmin}_{f'}\mathcal{L}(F'(J),y)$, $y\in\{0,1\}$, where $\mathcal{L}$ is the loss function (in this case, cross-entropy).  Networks are trained with Keras~\cite{keras} using the Tensorflow~\cite{tensorflow} backend and optimized using Adam~\cite{adam}.  To compare the sensitivity of a deep neural network trained directly on the natural high-dimensionality with traditional methods, a second network is trained whose first layer is a ratio of energy correlation functions~\cite{Larkoski:2013eya} known as $D_2$~\cite{Larkoski:2014gra}.
+To demonstrate the sensitivity of HDLL networks to small perturbations to the input observables, we subject our benchmark network $f$ to an \textit{adversarial attack}.
+A typical adversarial attack works by defining a loss function between the target network's response to some input(s) and the desired output.
+Then the gradient of this loss function with respect to the network's inputs is computed.
+By shifting the inputs in the negative direction of the gradient, the network's response to shift towards the desired value.
+%This is similar to the standard backpropagation algorithm, in which the gradient of a network's loss is computed instead with respect to the network's learnable parameters.
 
-The FGSM modification is then given by
+Note that in order to perform this attack, the parameters of the target network must be known; hence the ``demon'' discussed in \ref{sec:intro}.
+Nonetheless, as this attack yields a mathematically optimal perturbation to a given input for a given network, it can be viewed as a worst-case scenario.
+Therefore, if a specific network is shown to be robust against the attack, it is also reasonable to conclude that the effect of any intractable systematic mismodellings present in physics simulations are safe to ignore.
+Conversely, if a network is shown to be sensitive to such attacks, the adversarially-induced systematic can be viewed only as a (potentially weak) upper bound for more realistic systematic effects.
+In this case, a poor upper bound may indicate more careful scrutiny of a network's systematic exposure is warranted.
+The bound also be used as a guiding metric in the development of more robust models.
 
-\begin{align}
+In this work we will present two different forms of adversarial attack.
+The first is based on the fast gradient sign method (FGSM) proposed in~\cite{DBLP:journals/corr/GoodfellowSS14}, which computes a bounded perturbation for a single given a fixed input.
+The second is a broader attack utilizing an adversarial neural network which learns to compute perturbations for arbitrary inputs.
+The former method is the most literal realization of our ``demon'', as each jet is individually modified to optimally confound the network.
+The latter demonstrates that there exist more universal\footnote{need a better word?? continuous?} systematic mappings between one dataset and another which systematically affect network performance; in particular the network learns to generalize its perturbation to jets the training data.
+
+In both cases, our demon is tasked with transforming signal jets so as to solicit a background-like response from the benchmark classifier.
+In such a scenario, an experimental analysis optimized using the simulated signal model would be very likely to reject true signal events as background.
+This in turn could lead to overconfidently excluding a theoretical hypothesis, or even missing a discovery of new physics altogether.
+
+\subsection{Fast Gradient Sign Method}
+The FGSM method~\cite{DBLP:journals/corr/GoodfellowSS14} works by taking an individual jet $J_i$ and regressing the loss function to compute a \textit{bounded} perturbation $\delta J_i$, such that network's response to the input $J_i + \delta J_i$ tends towards some desired value.
+Specifically, the perturbation is given by:
+\begin{equation}
 \label{eq:FGSM}
-f(J_i+\epsilon\times\text{sign}(\Delta_J(\mathcal{L}(f,J))|_{J=J_i}),
-\end{align}
+\delta J_i = \epsilon\left.\sign\left[\nabla_{J} \mathcal{L}\left(f(J), y_\mathrm{bg}\right)\right]\right\rvert_{J=J_i} \,,
+\end{equation}
+where $\mathcal{L}$ is the binary crossentropy, and $y_\mathrm{bg}$ is the label corresponding to background events.
+The use of the $\sign$ of the gradient and the free parameter $\epsilon$ ensures that the perturbation of each input observable is bounded while moving approximately in the direction normal to the decision boundary.
 
-\noindent where $\epsilon=(\epsilon_{p_T},\epsilon_\eta,\epsilon_\phi)^N, \epsilon_i\ll1$ is a small perturbation.  In the example below, $\epsilon=(2,20,20)\times 10^{-4}$.  The process illustrated in Eq.~\ref{eq:FGSM} is repeated $N=10$ times.  Figure~\ref{fig:FGSM} blah...
+In our example, this gradient, like the input, is a $\nconst\times3$ tensor, where the quantities on second axis represent $\pt$, $\eta$, and $\phi$.
+We wish to ensure that the perturbation is small relative to experimental resolution, yet these observables have rather different scales associated to them.
+To accommodate this, we promote $\epsilon$ to a $1\times3$ tensor characterized by three parameters: $\epsilon = (\epsilon_{\pt}, \epsilon_\eta, \epsilon_\phi)$ where the multiplication in \ref{eq:FGSM} follows tensorflow broadcast semantics~\cite{tensorflow}.
+
+This procedure may be applied iteratively by replacing $J_i \rightarrow J_i + \delta^{(k)} J_i$ in \ref{eq:FGSM}, where $\delta^{(k)}J_i$ is the result of the $k^\mathrm{th}$ iteration.
+In this case, the scale of perturbations will be bounded by $k\epsilon$.
+Generally the success of the FGSM attack will depend on the size of the maximal perturbation tolerated, $k\epsilon$, the dimensionality of the input space, and the intrinsic robustness of the target network.
+
+\subsection{Adversarial Network Method}
+
+
+
+A deep neural network $f(J_i)\mapsto [0,1]$ is trained in the usual way $f=\text{argmin}_{f'}\mathcal{L}(F'(J),y)$, $y\in\{0,1\}$, where $\mathcal{L}$ is the loss function (in this case, cross-entropy).
+Networks are trained with Keras~\cite{keras} using the Tensorflow~\cite{tensorflow} backend and optimized using Adam~\cite{adam}.
+To compare the sensitivity of a deep neural network trained directly on the natural high-dimensionality with traditional methods, a second network is trained whose first layer is a ratio of energy correlation functions~\cite{Larkoski:2013eya} known as $D_2$~\cite{Larkoski:2014gra}.
+
+
+\section{Results}
+
+In the example below, $\epsilon=(2,20,20)\times 10^{-4}$.  The process illustrated in Eq.~\ref{eq:FGSM} is repeated $N=10$ times.  Figure~\ref{fig:FGSM} blah...
 
 \begin{figure}[h!]
 \centering
@@ -166,7 +217,6 @@ While the FGSM illustrated the sensitivity to small perturbations for single jet
 g=\text{argmin}_{g'}\left[\mathcal{L}_\text{xe}(f(J+\delta J),\bar{y})+\mathcal{L}_\text{jet}(J,J+\Delta J)\right],
 \end{align}
 
-\section{Results}
 
 \section{Conclusions}
 Conclusions and outlook...
