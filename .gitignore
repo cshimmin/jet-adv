@@ -1,0 +1,8 @@
+.DS_Store
+*.swp
+documentation/*.aux
+documentation/*.log
+documentation/*.out
+documentation/*.synctex*
+documentation/*.pdf
+documentation/*.bbl

@@ -3,6 +3,8 @@ import pandas as pd
 import itertools as it
 import tensorflow as tf
 import keras.backend as K
+import keras.layers as layers
+from keras import callbacks
 
 from pyjet import cluster,DTYPE_PTEPM
 
@@ -28,7 +30,7 @@ def load_data(nevt=50000):
 # `jets` is a list containing the (pt, eta, phi, m) for the leading jet in each event
 # `consts` is a list containing the (pt, eta, phi) for the leading `ntrk` particles in the jet.
 
-def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, gev=False, min_ntrk=None, min_trk_pt=0):
+def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, gev=False, min_ntrk=None, min_trk_pt=0, verbose=0):
     ljets = np.zeros((len(evts), 4))
     consts = np.zeros((len(evts), ntrk, 3))
     
@@ -39,6 +41,8 @@ def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, gev=False, min_ntrk=None
     
     arr = np.zeros(700, dtype=DTYPE_PTEPM)
     for i,evt in enumerate(evts):
+        if verbose and i%10000==0:
+            print("Processing event %d"%i)
         pt = evt[:,0]
         mask = pt>min_trk_pt
         n = np.sum(mask)
@@ -134,7 +138,7 @@ def ecf_tf(N, beta, x, normalized=False):
     pt = x[:,:,0]
     eta = x[:,:,1:2]
     phi = x[:,:,2:3]
-
+    
     if N == 0:
         return tf.ones((x.shape[0],1))
     elif N == 1:
@@ -143,21 +147,31 @@ def ecf_tf(N, beta, x, normalized=False):
         else:
             return tf.reduce_sum(pt, axis=-1, keepdims=True)
     
-    # pre-compute the R_ij matrix
-    R = tf.concat([tf.sqrt((eta[:,i:i+1]-eta)**2+(phi[:,i:i+1]-phi)**2) for i in range(x.shape[1])], axis=-1)
+    # pre-compute the (square of) R_ij matrix
+    R2 = tf.concat([tf.square(eta[:,i:i+1]-eta)+tf.square(phi[:,i:i+1]-phi) for i in range(x.shape[1])], axis=-1)
+    
+    # kill entries in R_ij corresponding to non-existant particles
+    #isnz = tf.cast(pt>0, K.floatx())
+    #R = tf.einsum('bij,bi,bj->bij',R,isnz,isnz)
+    
     # note, if dR = 0, these are either diagonal or padded entries that will get killed by pT=0 terms.
     # set these entries to some positive number to avoid divide-by-zero when beta<0
-    R = tf.clip_by_value(R, 1e-6, 999)
+    #R = tf.clip_by_value(R, 1e-9, 9999)
     
     # and raise it to the beta power for use in the product expression
-    R_beta = tf.pow(R,beta)
+    if beta == 2:
+        R_beta = R2
+    elif beta == 1:
+        R_beta = tf.sqrt(R2)
+    else:
+        R_beta = tf.pow(R2,beta/2)
     
     # indexing tensor, returns 1 if i>j>k...
     eps = np.zeros((x.shape[1],)*N)
     for idx in it.combinations(range(x.shape[1]), r=N):
         eps[idx] = 1
     eps = tf.constant(eps, dtype=K.floatx())
-        
+    
     if N == 2:
         result = tf.einsum('ij,ai,aj,aij->a',eps,pt,pt,R_beta)
     elif N == 3:
@@ -190,34 +204,114 @@ def jet_tf(x):
     jpE = K.sum(pT*(0.5*(tf.exp(eta)+tf.exp(-eta))),axis=1) #no tf.cosh in my version
 
     jet_pT2 = tf.square(jpx) + tf.square(jpy)
-    jet_p = tf.sqrt(tf.square(jpz) + jet_pT2)
-    jet_mass = tf.sqrt(jpE**2-jet_pT2-jpz**2) #m
     jet_pT = tf.sqrt(jet_pT2)
+    jet_p = tf.sqrt(tf.square(jpz) + jet_pT2)
+    jet_m2 = jpE**2-jet_pT2-jpz**2
+    jet_mass = tf.sqrt(tf.where(jet_m2>0,jet_m2,tf.zeros_like(jet_m2))) #m
     jet_eta = tf.atanh(jpz/jet_p)
     jet_phi = tf.atan2(jpy, jpx)
     
     
     return tf.concat([jet_pT, jet_eta, jet_phi, jet_mass], axis=-1)
 
+# Layer to compute jet 4-vector kinematics (pT, eta, phi, m) from input
+# list of constituents (pT,eta,phi)
+class JetVector(layers.Layer):
+    def __init__(self, **kwargs):
+        super(JetVector, self).__init__(**kwargs)
+        
+    def call(self, x):
+        return jet_tf(x)
+    
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], 4)
+
 # Layer to compute jet kinematics (pT, eta, phi, m) as well as
 # C2 and D2 from an input list of constituents (pT, eta, phi)
-class JetLayer(layers.Layer):
-    def __init__(self, beta=1, **kwargs):
-        super(JetLayer, self).__init__(**kwargs)
+class JetECF(layers.Layer):
+    def __init__(self, beta=2, **kwargs):
+        super(JetECF, self).__init__(**kwargs)
         
         self.beta = beta
     
     def call(self, x):
-        ecf1 = util.ecf_tf(1, self.beta, x, normalized=False)
-        ecf2 = util.ecf_tf(2, self.beta, x, normalized=False)
-        ecf3 = util.ecf_tf(3, self.beta, x, normalized=False)
+        ecf1 = ecf_tf(1, self.beta, x, normalized=False)
+        ecf2 = ecf_tf(2, self.beta, x, normalized=False)
+        ecf3 = ecf_tf(3, self.beta, x, normalized=False)
 
-        c2 = ecf3 * ecf1 / tf.square(ecf2)
-        d2 = ecf3 * tf.pow(ecf1, 3) / tf.pow(ecf2, 3)
+        #c2 = ecf3 * ecf1 / tf.square(ecf2)
+        #denominator = tf.clip_by_value(tf.pow(ecf2, 3), 1e-9, 1e15)
+        denominator = tf.pow(ecf2, 3) + K.epsilon()
+        d2 = ecf3 * tf.pow(ecf1, 3) / denominator
         
-        jet_vars = layers.Lambda(util.jet_tf)(x)
+        #jet_vars = tf.concat([jet_vec, c2, d2], axis=-1)
         
-        return tf.concat([jet_vars, c2, d2], axis=-1)
+        #jet_vars = tf.concat([jet_vec, ecf1, ecf2, ecf3], axis=-1)
+        jet_vars = tf.concat([ecf1, ecf2, ecf3, d2], axis=-1)
+        
+        '''
+        if self.jet_vars_shift is not None:
+            shift = tf.constant(np.reshape(self.jet_vars_shift, (1,-1)))
+            jet_vars = jet_vars - shift
+        if self.jet_vars_scale is not None:
+            scale = tf.constant(np.reshape(self.jet_vars_scale, (1,-1)))
+            jet_vars = jet_vars/scale
+        '''
+            
+        
+        return jet_vars
     
     def compute_output_shape(self, input_shape):
         return (input_shape[0],6,)
+    
+
+class HistoryCB(callbacks.Callback):
+    def __init__(self, **kwargs):
+        super(HistoryCB, self).__init__(**kwargs)
+        
+        self.epoch = []
+        self.epoch_total = 0
+        self.history = {}
+        
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        self.epoch.append(epoch)
+        self.epoch_total += 1
+        for k, v in logs.items():
+            self.history.setdefault(k, []).append(v)
+
+class PolarToRect(layers.Layer):
+    def __init__(self, **kwargs):
+        super(PolarToRect, self).__init__(**kwargs)
+        
+    def call(self, x):
+        pT,eta,phi=tf.split(x,3,axis=-1) #axis = 2 because it is a list of particles, then a list of properties per particle
+        px = pT*tf.cos(phi)
+        py = pT*tf.sin(phi)
+        pz = pT*(0.5*(tf.exp(eta)-tf.exp(-eta))) #no tf.sinh in my version
+        #E = pT*(0.5*(tf.exp(eta)+tf.exp(-eta))) #no tf.cosh in my version
+        
+        return tf.concat([px,py,pz], axis=-1)
+    
+    def compute_output_shape(self, input_shape):
+        return input_shape
+    
+class RectToPolar(layers.Layer):
+    def __init__(self, **kwargs):
+        super(RectToPolar, self).__init__(**kwargs)
+    
+    def call(self, x):
+        px, py, pz = tf.split(x,3,axis=-1)
+        
+        pT2 = tf.square(px) + tf.square(py)
+        p2 = pT2 + tf.square(pz)
+        pmag = tf.sqrt(p2)
+        
+        pT = tf.sqrt(pT2)
+        eta = tf.atanh(pz / (pmag + K.epsilon()))
+        phi = tf.atan2(py,px)
+        
+        return tf.concat([pT, eta, phi], axis=-1)
+    
+    def compute_output_shape(self, input_shape):
+        return input_shape
