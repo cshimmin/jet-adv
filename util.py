@@ -5,22 +5,21 @@ import tensorflow as tf
 import keras.backend as K
 import keras.layers as layers
 from keras import callbacks
+from sklearn.metrics import roc_auc_score, roc_curve
+import matplotlib.pyplot as plt
 
 from pyjet import cluster,DTYPE_PTEPM
 
-def load_data(nevt=50000):
-    try:
-        d = pd.DataFrame(np.load('events_%d.npy'%nevt))
-    except FileNotFoundError:
-        d = pd.read_hdf("events.h5")[:nevt]
-        np.save('events_%d.npy'%nevt, d)
+def load_data():
+    d = pd.read_hdf("events.h5")
 
     is_bg = (d[2100] == 0)
     is_sig = (d[2100] == 1)
 
     # pull out the bg and signal events separately, and reshape to (Nevt, Nparticle, 3)
     # the last axis is (pT,eta,phi)
-    bg = d[is_bg][::2].to_numpy()[:,:-1].reshape((-1,700,3))
+    # Also, there's generally much more BG than we want, so drop half of it.
+    bg = d[is_bg][::3].to_numpy()[:,:-1].reshape((-1,700,3))
     sig = d[is_sig].to_numpy()[:,:-1].reshape((-1,700,3))
 
     return sig, bg
@@ -30,14 +29,14 @@ def load_data(nevt=50000):
 # `jets` is a list containing the (pt, eta, phi, m) for the leading jet in each event
 # `consts` is a list containing the (pt, eta, phi) for the leading `ntrk` particles in the jet.
 
-def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, gev=False, min_ntrk=None, min_trk_pt=0, verbose=0):
-    ljets = np.zeros((len(evts), 4))
-    consts = np.zeros((len(evts), ntrk, 3))
+def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, unit=1, min_ntrk=None, min_trk_pt=0, min_jet_mass=None, max_jet_mass=None, verbose=0):
+    #ljets = np.zeros((len(evts), 4))
+    ljets = []
+    #consts = np.zeros((len(evts), ntrk, 3))
+    consts = []
     
     if min_ntrk is None:
         min_ntrk = ntrk
-    
-    unit = 1e3 if gev else 1.0
     
     arr = np.zeros(700, dtype=DTYPE_PTEPM)
     for i,evt in enumerate(evts):
@@ -54,13 +53,14 @@ def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, gev=False, min_ntrk=None
         pj_input['eta'] = eta
         pj_input['phi'] = phi
         sequence = cluster(pj_input, R=R, p=-1)
-        jets = sequence.inclusive_jets(ptmin=20)
+        jets = sequence.inclusive_jets(ptmin=20*unit)
 
         if len(jets) < 1:
             continue
         
         j0 = jets[0]
-        
+        if j0.pt < min_jet_pt:
+            continue
         
         c0 = j0.constituents_array()
         c0[::-1].sort()
@@ -68,18 +68,55 @@ def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, gev=False, min_ntrk=None
         
         if c0.shape[0] < min_ntrk:
             continue
+        
+        if min_jet_mass and j0.mass<min_jet_mass:
+            continue
+        if max_jet_mass and j0.mass>max_jet_mass:
+            continue
             
-        ljets[i] = (j0.pt, j0.eta, j0.phi, j0.mass)
+        #ljets[i] = (j0.pt, j0.eta, j0.phi, j0.mass)
+        ljets.append((j0.pt, j0.eta, j0.phi, j0.mass))
         
-        consts[i][:nc,0] = c0[:nc]['pT']
-        consts[i][:nc,1] = c0[:nc]['eta']
-        consts[i][:nc,2] = c0[:nc]['phi']
+        #consts[i][:nc,0] = c0[:nc]['pT']
+        #consts[i][:nc,1] = c0[:nc]['eta']
+        #consts[i][:nc,2] = c0[:nc]['phi']
+        c = np.zeros((ntrk, 3))
+        c[:nc,0] = c0[:nc]['pT']
+        c[:nc,1] = c0[:nc]['eta']
+        c[:nc,2] = c0[:nc]['phi']
+        consts.append(c)
         
-    sel = ljets[:,0] > min_jet_pt
-    ljets = ljets[sel]
-    consts = consts[sel]
+    return np.array(ljets), np.array(consts)
+
+def format_dataset(bg, sig, validation_fraction=0.15, shuffle=True):
+    n_per_class = min(bg.shape[0], sig.shape[0])
     
-    return ljets, consts
+    n_val = int(validation_fraction * n_per_class)
+    n_train = n_per_class - n_val
+    
+    bg = bg[:n_per_class]
+    sig = sig[:n_per_class]
+    
+    X_train = np.concatenate([bg[:-n_val], sig[:-n_val]], axis=0)
+    y_train = np.zeros(2*n_train)
+    y_train[n_train:] = 1
+    
+    X_val = np.concatenate([bg[-n_val:], sig[-n_val:]], axis=0)
+    y_val = np.zeros(2*n_val)
+    y_val[n_val:] = 1
+    
+    if shuffle:
+        idxs_train = np.arange(X_train.shape[0])
+        np.random.shuffle(idxs_train)
+        X_train = X_train[idxs_train]
+        y_train = y_train[idxs_train]
+        
+        idxs_val = np.arange(X_val.shape[0])
+        np.random.shuffle(idxs_val)
+        X_val = X_val[idxs_val]
+        y_val = y_val[idxs_val]
+    
+    return (X_train, y_train), (X_val, y_val)
 
 # calculates ECF for a batch of jet constituents.
 # x should have a shape like [batch_axis, particle_axis, 3]
@@ -214,6 +251,34 @@ def jet_tf(x):
     
     return tf.concat([jet_pT, jet_eta, jet_phi, jet_mass], axis=-1)
 
+# Layer to add a random phi offset to all constituents
+class RandomizePhi(layers.Layer):
+    def __init__(self, **kwargs):
+        super(RandomizePhi, self).__init__(**kwargs)
+    
+    def call(self, inputs, training=None):
+        pt, eta, phi = tf.split(inputs, 3, axis=-1)
+        phi_new = phi + tf.random_uniform((tf.shape(phi)[0],1,1),-np.pi,np.pi)
+        noised = tf.concat([pt,eta,phi_new], axis=-1)
+        return K.in_train_phase(noised, inputs, training=training)
+    
+    def compute_output_shape(self, input_shape):
+        return input_shape
+    
+class RandomizeJetPhi(layers.Layer):
+    def __init__(self, **kwargs):
+        super(RandomizeJetPhi, self).__init__(**kwargs)
+    
+    def call(self, input, training=None):
+        jet_features = tf.split(inputs, input.shape[1], axis=-1)
+        jet_phi = jet_features[2]
+        phi_new = jet_phi + tf.random_uniform((tf.shape(jet_phi)[0],1), -np.pi, np.pi)
+        noised = tf.concat(features[:2] + [phi_new] + features[3:], axis=-1)
+        return K.in_train_phase(noised, inputs, training=training)
+    
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
 # Layer to compute jet 4-vector kinematics (pT, eta, phi, m) from input
 # list of constituents (pT,eta,phi)
 class JetVector(layers.Layer):
@@ -262,16 +327,20 @@ class JetECF(layers.Layer):
         return jet_vars
     
     def compute_output_shape(self, input_shape):
-        return (input_shape[0],6,)
+        return (input_shape[0],4,)
     
 
 class HistoryCB(callbacks.Callback):
-    def __init__(self, **kwargs):
+    def __init__(self, val_data=None, **kwargs):
         super(HistoryCB, self).__init__(**kwargs)
         
         self.epoch = []
         self.epoch_total = 0
         self.history = {}
+        if val_data:
+            self.X_val, self.y_val = val_data
+        else:
+            self.X_val = self.y_val = None
         
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
@@ -279,6 +348,35 @@ class HistoryCB(callbacks.Callback):
         self.epoch_total += 1
         for k, v in logs.items():
             self.history.setdefault(k, []).append(v)
+        
+        if self.X_val is not None:
+            y_pred = self.model.predict(self.X_val)
+            self.history.setdefault('val_auc', []).append(roc_auc_score(self.y_val, y_pred))
+    
+    def plot(self, metrics, layout=None, figsize=None, nskip=0):
+        if isinstance(metrics, str):
+            metrics = [metrics]
+            
+        if layout == None:
+            layout = (1,len(metrics))
+        
+        xepochs = np.arange(self.epoch_total)+1
+        
+        plt.figure(figsize=figsize)
+        for i,m in enumerate(metrics):
+            plt.subplot(layout[0], layout[1], i+1)
+            
+            # special case: plot ROC curve
+            if m.lower() == 'roc':
+                x, y, _ = roc_curve(self.y_val, self.model.predict(self.X_val))
+                plt.plot(x, y)
+                plt.plot([0,1],[0,1],lw=0.5,color='black')
+            else:
+                plt.plot(xepochs[nskip:], self.history[m][nskip:], ls='--')
+                if 'val_'+m in self.history:
+                    plt.plot(xepochs[nskip:], self.history['val_'+m][nskip:])
+                plt.xlabel("Epoch")
+                plt.ylabel(m)
 
 class PolarToRect(layers.Layer):
     def __init__(self, **kwargs):
