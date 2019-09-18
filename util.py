@@ -269,11 +269,11 @@ class RandomizeJetPhi(layers.Layer):
     def __init__(self, **kwargs):
         super(RandomizeJetPhi, self).__init__(**kwargs)
     
-    def call(self, input, training=None):
-        jet_features = tf.split(inputs, input.shape[1], axis=-1)
+    def call(self, inputs, training=None):
+        jet_features = tf.split(inputs, inputs.shape[1], axis=-1)
         jet_phi = jet_features[2]
         phi_new = jet_phi + tf.random_uniform((tf.shape(jet_phi)[0],1), -np.pi, np.pi)
-        noised = tf.concat(features[:2] + [phi_new] + features[3:], axis=-1)
+        noised = tf.concat(jet_features[:2] + [phi_new] + jet_features[3:], axis=-1)
         return K.in_train_phase(noised, inputs, training=training)
     
     def compute_output_shape(self, input_shape):
@@ -331,7 +331,7 @@ class JetECF(layers.Layer):
     
 
 class HistoryCB(callbacks.Callback):
-    def __init__(self, val_data=None, **kwargs):
+    def __init__(self, val_data=None, batch_size=512, **kwargs):
         super(HistoryCB, self).__init__(**kwargs)
         
         self.epoch = []
@@ -341,6 +341,7 @@ class HistoryCB(callbacks.Callback):
             self.X_val, self.y_val = val_data
         else:
             self.X_val = self.y_val = None
+        self.batch_size = batch_size
         
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
@@ -350,7 +351,7 @@ class HistoryCB(callbacks.Callback):
             self.history.setdefault(k, []).append(v)
         
         if self.X_val is not None:
-            y_pred = self.model.predict(self.X_val)
+            y_pred = self.model.predict(self.X_val, batch_size=self.batch_size)
             self.history.setdefault('val_auc', []).append(roc_auc_score(self.y_val, y_pred))
     
     def plot(self, metrics, layout=None, figsize=None, nskip=0):
@@ -368,7 +369,7 @@ class HistoryCB(callbacks.Callback):
             
             # special case: plot ROC curve
             if m.lower() == 'roc':
-                x, y, _ = roc_curve(self.y_val, self.model.predict(self.X_val))
+                x, y, _ = roc_curve(self.y_val, self.model.predict(self.X_val, batch_size=self.batch_size))
                 plt.plot(x, y)
                 plt.plot([0,1],[0,1],lw=0.5,color='black')
             else:

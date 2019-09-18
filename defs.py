@@ -1,6 +1,7 @@
-N_CONST     = 64 # number of constituents
-MIN_PT      = 0.5e-3 # minimum constituent pT (TeV)
-JET_MASS_MIN  = 60e-3 # minimum jet mass (TeV)
+N_CONST      = 96 # number of constituents
+MIN_PT       = 0.5e-3 # minimum constituent pT (TeV)
+JET_MASS_MIN = 60e-3 # minimum jet mass (TeV)
+JET_PT_MIN   = 300e-3 # minimum jet pT (TeV)
 
 CLUSTER_ARGS = dict(
     ntrk       = 64,     # max number of constituents
@@ -14,8 +15,8 @@ CLUSTER_ARGS = dict(
 # best res: l=3, u=512/256
 BENCHMARK_LL_ARGS = dict(
     n_layers    = 5,
-    n_units     = 256,
-    dropout     = 0.25,
+    n_units     = 1024,
+    dropout     = 0.0,
     res         = False,
     n_res_units = 384,
     batch_norm  = False,
@@ -23,9 +24,9 @@ BENCHMARK_LL_ARGS = dict(
 
 BENCHMARK_HL_ARGS = dict(
     n_feature  = 5,
-    n_layers   = 3,
+    n_layers   = 5,
     n_units    = 384,
-    dropout    = 0.5,
+    dropout    = 0.25,
 )
 
 VALIDATION_FRACTION = 0.15
