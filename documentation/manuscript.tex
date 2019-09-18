@@ -25,7 +25,7 @@
  \DeclareMathOperator*{\E}{\mathbb{E}}
  
 % some placeholders for various parameters of the network, dataset, experiments, etc
-\newcommand{\nconst}{128}       % number of jet constituents
+\newcommand{\nconst}{64}       % number of jet constituents
 \newcommand{\ptcut}{1.3}           % leading jet pT cut
 \newcommand{\nlayerCLS}{3}     % number of layers in the target classifier
 \newcommand{\nunitsCLS}{256} % number of units per layer
@@ -84,49 +84,44 @@ In addition to providing a pragmatic diagnostic, this work will hopefully begin 
 \label{sec:intro}
 %%% Note: having a hard time striking a balance between explaining how we do analysis at the LHC, so that other fields can understand the problem,
 %%% vs, keeping this short and generic enough to underscore how it applies other fields.
-Collider-based high-energy physics (HEP) relies critically on sophisticated simulations which model length scales from sub-nuclear reactions all the way to macroscopic detector-length scales in order to connect fundamental theories to experimentally-observable quantities.
+Collider-based high-energy physics (HEP) relies critically on sophisticated simulations which model physical process spanning sub-nuclear reactions all the way to macroscopic detector-length scales in order to connect fundamental theories to experimentally-observable quantities.
 These simulations are highly sophisticated, but are an approximation to nature and therefore systematic mismodeling must be accounted for by calibrating to data.
-Searches for physics beyond the standard model generally depend on placing bounds on anomalous disagreement between simulated Standard Model (SM) predictions and experimental observations; hence, it is essential that any anomalies that may appear due to mismodelling are understood precisely.
+Searches for physics beyond the Standard Model (SM) generally depend on placing bounds on anomalous disagreement between simulated SM predictions and experimental observations; hence, it is essential to account for any anomalies that may appear due to a mismodelling in the simulation.
 
-In the traditional paradigm, a discriminating observable $m$ is used to isolate a region $s$ of phase space called the \textit{signal region}, where the expected rate of a hypothetical signal is large relative to the background.
+In the traditional paradigm, a set of discriminating observables are used to isolate a region $s$ of phase space called the \textit{signal region}, where the expected rate of a hypothetical signal is large relative to the SM background.
 The sensitivity of this approach is generally related to the relative rates of the signal and background, as well as the precision with which the background may be estimated.
 In order to constrain the latter, a separate region $c$ of phase space is defined, where contributes from new physics are expected to be negligible, providing a pure sample of SM background processes.
-In this \textit{control region}, the simulation is adjusted to match the observed data (for example, by scaling an unknown normalization, or by constraining nuisance parameters of the simulation model).
-Then using the adjusted simulation, a prediction for the background rate may be extrapolated into the signal region.
+In this \textit{control region}, the simulation is adjusted to match the observed data.  For example, this may be done by scaling an unknown normalization, or by constraining nuisance parameters of the simulation model.  The adjust simulation is then used to make a prediction for the background rate in the signal region by extrapolation. 
 
 %In the traditional paradigm, a discriminating observable $m$ is used to isolate a region of phase space $m<c$ where contributions from new physics are expected to be small compared with the SM background processes.
 %In this \textit{control region}, the predicted cross-section is scaled to match the data and then the scaled differential cross-section from simulation is used to estimate the Standard Model contribution in a \text{signal region} with $m\gg c$.
 %Theoretical uncertainties on the extrapolation are estimated by repeating this procedure with a variety of simulations.
 
-Traditionally, a signal and control regions would be defined by applying selective criteria on physical observables, such as particle momenta or topological structure of an event.
-However, it is often the case that several different observables, perhaps in some complicated relationship, are useful for isolating signal and background processes.
-A typical application of machine learning in HEP is to automate the construction of signal and control regions by reformulating the task as an optimization problem; for example, a binary classifier may be trained on simulation to predict signal-like and background-like events.
-While this has been done for years~\cite{} using ``shallow'' classifiers such as BDTs~\cite{}, the success of these methods have generally been very sensitive to the exact observable features selected as input to the classifier, incurring a significant amount of effort towards ``feature engineering'' to identify useful \textit{high-level} observables.
+
+%Signal and control regions are defined by applying selective criteria on physical observables, such as particle momenta or topological structure of an event.  It is often the case that many observables, perhaps in some complicated relationship, are useful for isolating signal and background processes.
+A typical application of machine learning in HEP is to automate the construction of signal and control regions by formulating the task as an optimization problem.  For example, a binary classifier may be trained on simulation to distinguish signal events from background events and then $s$ and $c$ could correspond to different regions of the classifier output.  While this has been done for years\footnote{See for instance Ref.~\cite{Hocker:2007ht} and the papers that cite it.} using ``shallow'' classifiers, the success of these methods have generally been very sensitive to the exact observable features selected as input to the classifier, incurring a significant amount of effort towards ``feature engineering'' to identify useful \textit{high-level} observables.
 
 With the more recent introduction of deep learning methods, it has become possible to construct increasingly elaborate regions using higher-dimensionality input features.
-Perhaps surprisingly, it has been shown~\cite{Baldi:2014kfa,deOliveira:2015xxd,Baldi:2016fql,Guest:2016iqz} that when provided with \textit{low-level} features (\textit{i.e} observables that are minimally processed using physical intuition), deep neural networks are able to automatically learn to exceed the performance of networks trained on the physically-motivated high-level features.
+Perhaps surprisingly, it has been shown\footnote{There are now too many examples to cite them all here.  References~\cite{Larkoski:2017jix,Radovic:2018dip,Guest:2018yhq} are recent reviews of deep learning in HEP and References~\cite{Baldi:2014kfa,deOliveira:2015xxd,Baldi:2016fql,Guest:2016iqz} were the earliest applications of deep learning to collider-based HEP classification problems.} that when provided with high-dimensional \textit{low-level} (HDLL) features (\textit{i.e.} observables that are minimally processed using physical intuition), deep neural networks are able to automatically learn to exceed the performance of networks trained on physically-motivated high-level features.
 
 %Deep learning offers a new set of tools in HEP for seeking out new particles using high-dimensional, low-level information~\cite{Baldi:2014kfa,Larkoski:2017jix,Radovic:2018dip,Guest:2018yhq}.
 %A growing number of searches at the Large Hadron Collider are using deep learning methods to construct $m$.
 %The control region method is the baseline approach for estimating the SM background in the nascent deep learning era.
 
-Increasingly, LHC experimentalists are taking this message to heart, with searches starting to emerge~\cite{Andrews:2018nwy,Andrews:2019faz,more??} which are built around deeper networks with high-dimensional and low-level (HDLL) input feature spaces.
-This trend is also seen in related fields such as neutrino physics, where various TPC detector experiments are moving towards deep learning on very low-level data to replace conventional event reconstruction methods~\cite{Acciarri:2016ryt,Delaquis:2018zqi}.
-
+While the first analysis-specific deep learning results from the Large Hadron Collider (LHC) are only starting to become public (see e.g.~\cite{Aad:2019yxi,ATLAS-CONF-2019-017,CMS-PAS-SUS-19-009}), analysis-non-specific deep learning has been used for a few years starting with flavor tagging~\cite{CMS-DP-2017-005,ATL-PHYS-PUB-2017-003}.  In addition, there is a plethora of experimental and phenomenological studies for additional methods which will likely be realized as part of physics analyses in the near future.  This includes proposals to use the lowest-level inputs available to the experiment, reaching input feature dimensionality of $\mathcal{O}(10^5)$~\cite{Andrews:2018nwy,Andrews:2019faz} and beyond.  %This trend is also seen in related fields such as neutrino physics, where various TPC detector experiments are moving towards deep learning on very low-level data to replace conventional event reconstruction methods~\cite{Acciarri:2016ryt,Delaquis:2018zqi}.
 
 %A potential problem of the control region method with deep learning is that the calibration procedure may not sufficiently probe the high dimensionality of the feature space.  For example, if $\mathcal{O}(1000)$ dimensions are used for training a neural network, but only $\mathcal{O}(1)$ simulation variations are considered for the uncertainty on the calibration (as is common), then the prediction in the signal region may be incorrect: the uncertainty may be much smaller than the potential bias.
 
-A potential problem arises when combining deep learning on HDLL features to the conventional simulation-based analysis paradigm.
-As noted above, physics simulation will in general differ from real observables, and while we are able to mitigate this effect by calibrating and validating certain physical observables (such as reconstructed particle states) in order to evaluate systematic effects, it may be experimentally infeasible to calibrate or even validate simulations of HDLL features.
-Moreover, recent developments in the area of AI safety have demonstrated~\cite{Szegedy14intriguingproperties,DBLP:journals/corr/GoodfellowSS14} that when neural networks operate on high-dimensional input spaces, it is generically possible to get arbitrary degradation of network performance by applying subtle deviations to the input features.
-
+A potential problem with this approach arises when combining deep learning on HDLL features to the conventional simulation-based analysis paradigm.  In the traditional approach, uncertainties on the extrapolation between the control region and the signal region rely on simulation variations that can be validated on a small number of one-dimensional physically-motivated features.  Uncertainties covering the full HDLL feature phase space are often not known or experimentally infeasible~\cite{Nachman:2019dol}. %and low-dimensional validation may be insufficient.  
+%As noted above, physics simulation will in general differ from real observables, and while we are able to mitigate this effect by calibrating and validating certain physical observables (such as reconstructed particle states) in order to evaluate systematic effects, it may be experimentally infeasible to calibrate or even validate simulations of HDLL features.
+Moreover, low-dimensional validation may be insufficient: recent developments in the area of Artificial Intelligence (AI) safety have demonstrated that when neural networks operate on high-dimensional input spaces, classification performance of neural networks can be arbitrarily degraded by applying subtle variations to the input features~\cite{Szegedy14intriguingproperties,DBLP:journals/corr/GoodfellowSS14}.
 
 %This work uses methods from AI safety to diagnose the sensitivity of the current methodology to under-constrained feature spaces.
 %In particular, a common high-dimensional classification problem from jet physics is used to illustrate the sensitivity to small perturbations in measured particle properties and also to devise a sensitivity diagnostic with a directed adversarial attack.
 %Certainly nature is not evil, but without any good estimate of high dimensional correlated uncertainty, this bound can be used to demonstrate robustness. 
 
-To illustrate this problem, we implement an adversarial attack that demonstrates small perturbations in detector-level measurements can have drastic effects on the performance of a neural network trained to identify signal-like events.
-This adversarial procedure can be conceptualized as a sort of \textit{demon}~\cite{TheLordKelvin} which intercedes between a physical process and the observation of that process, in such a way as to maximally confound a neural network while being minimally noticeable by experimental standards.
+To illustrate this challenge, we implement an adversarial attack that demonstrates small perturbations in detector-level measurements can have drastic effects on the performance of a neural network trained to identify signal-like events.
+This adversarial procedure can be conceptualized as a sort of \textit{demon}~\cite{TheLordKelvin} which intercedes between a physical process and the observation of that process, in such a way as to maximally confound a neural network and be minimally noticeable by current experimental standards.
 While certainly no such demon exists, we propose a procedure based on this concept as a diagnostic tool to evaluate the worst-case sensitivity of a deep network architecture to uncertainty in high-dimensional correlations.
 This bound may then be used either to demonstrate the a given network architecture is manifestly robust against HDLL systematics, or as a guiding metric to aid in the future development of more robust networks.
 
@@ -134,21 +129,18 @@ This bound may then be used either to demonstrate the a given network architectu
 
 As one of the first examples of high-dimensional deep learning in high-energy physics, jet classification~\cite{Larkoski:2017jix} is used as the prototypical example.
 Jets are collimated sprays of particles resulting from high energy quark and gluon fragmentation, which are clustered~\cite{Cacciari:2008gp} into groups that approximate physical states in the original hard scattering process.
-As such, one can represent a jet $J_i$ by the momenta of its $N_i$ constituent particles $\{(p_{T,ij},\eta_{ij},\phi_{ij})\}\in\mathbb{R}^{3N_i}$, ignoring particle masses and other quantum numbers\footnote{explain what $p_\mathrm{T}$, $\eta$, $\phi$ are}.
-A typical problem is to identify whether a jet originated from a quark/gluon state, or by the decay of some massive particle.
-We use the dataset simulated in~\cite{gregor_kasieczka_2019_2629073}, in which the background process is generic quark and gluon scattering, while the signal process is comprised of hypothetical massive particles with masses of $100$, $500$, or $3500\ \mathrm{GeV}$ which decay into quark pairs.
-Pythia~8~\cite{Sjostrand:2006za,Sjostrand:2007gs} and Delphes 3.4.1~\cite{deFavereau:2013fsa} are used to simulate the scattering process and detector response, respectively.
-Jets are clustered using Fastjet~\cite{Cacciari:2011ma,Cacciari:2005hq} vis pyjet~\cite{noel_dawe_2019_2672944} implementing the anti-$k_t$ algorithm with radius parameter $R=1$~\cite{Cacciari:2008gp}.
-Each event is required to have a jet with $p_\mathrm{T} > 1.3\ \mathrm{TeV}$, and only the leading jet is considered.
+As such, one can represent a jet $J_i$ by the momenta of its $N_i$ constituent particles $\{(p_{T,ij},\eta_{ij},\phi_{ij})\}\in\mathbb{R}^{3N_i}$, ignoring particle masses and other quantum numbers\footnote{Using collider coordinates, $p_T$ is the particle momentum transverse to the collision axis, $\phi$ is the azimuthal angle and the pseudo-rapidity $\eta$ is $-\ln(\tan(\theta/2))$, where $\theta$ is the polar angle.}.
+A typical problem is to identify whether a jet originated from a quark/gluon state (background), or by the decay of some Lorentz boosted massive particle, in this case a $Z$ boson (signal).  Signal and background events are generated using Pythia~8~\cite{Sjostrand:2006za,Sjostrand:2007gs} with detector effects emulated by Delphes 3.4.1~\cite{deFavereau:2013fsa}.  Jets are clustered from reconstructed particle trajectories using Fastjet~\cite{Cacciari:2011ma,Cacciari:2005hq} vis pyjet~\cite{noel_dawe_2019_2672944} implementing the anti-$k_t$ algorithm with radius parameter $R=1$~\cite{Cacciari:2008gp}.
+Each event is required to have a jet with $p_\mathrm{T} > 1.3\ \mathrm{TeV}$, and only the leading jet is considered.  These jets typically have $\mathcal{O}(100)$ constituents. 
 
-Hence, we first train a benchmark classifier network $f$ which will be the target of our adversarial attack.
+We first train a benchmark classifier network $f$ which will be the target of our adversarial attack.
 The network takes as input a $\nconst\times3$ tensor $x$ corresponding to the constituent momenta of a jet; the $\pt$ of each constituent is expressed in units of TeV, resulting a input dynamic range that is of order unity.
 Jets with more than $\nconst$ constituents are truncated by dropping the lowest-$\pt$ constituents; the tensors are padded with zeros for jets with fewer constituents.
-The inputs are fed into a fully-connected neural network with \nlayerCLS\ hidden layers, each with \nunitsCLS\ units and ReLU activation.
+The inputs are processed by a fully-connected neural network with \nlayerCLS\ hidden layers, each with \nunitsCLS\ units and ReLU activation.
 The output layer is a single neuron with a sigmoid activation, and the loss function is the binary crossentropy between the network output $f(x)$ and the target labels $y$, in which $y=0$ corresponds to background events, and $y=1$ corresponds to signal.
 
 The classifier network is implemented using the Keras~\cite{keras} and tensorflow~\cite{tensorflow} libraries, and is trained with the Adam~\cite{adam} optimizer on \ntrain\ events with a 50\% signal/background split, and validated on \nval\ events.
-Training proceeds until the validation loss begins to diverge from the training loss, resulting in a final network with a validation AUC of \aucCLS.
+Training proceeds until the validation loss begins to diverge from the training loss, resulting in a final network with a validation area under the curve (AUC) of \aucCLS.
 
 \todo{rewrite to include information about second benchmark classifier that takes in jet-level observables (pT, eta, phi, mass, D2)}
 
@@ -159,18 +151,18 @@ Then the gradient of this loss function with respect to the network's inputs is 
 By shifting the inputs in the negative direction of the gradient, the network's response to shift towards the desired value.
 %This is similar to the standard backpropagation algorithm, in which the gradient of a network's loss is computed instead with respect to the network's learnable parameters.
 
-Note that in order to perform this attack, the parameters of the target network must be known; hence the ``demon'' discussed in \ref{sec:intro}.
+Note that in order to perform this attack, the parameters of the target network must be known; hence the ``demon'' discussed in Sec.~\ref{sec:intro}.
 Nonetheless, as this attack yields a mathematically optimal perturbation to a given input for a given network, it can be viewed as a worst-case scenario.
 Therefore, if a specific network is shown to be robust against the attack, it is also reasonable to conclude that the effect of any intractable systematic mismodellings present in physics simulations are safe to ignore.
 Conversely, if a network is shown to be sensitive to such attacks, the adversarially-induced systematic can be viewed only as a (potentially weak) upper bound for more realistic systematic effects.
 In this case, a poor upper bound may indicate more careful scrutiny of a network's systematic exposure is warranted.
-The bound also be used as a guiding metric in the development of more robust models.
+The bound may also be used as a guiding metric in the development of more robust models.
 
 In this work we will present two different forms of adversarial attack.
-The first is based on the fast gradient sign method (FGSM) proposed in~\cite{DBLP:journals/corr/GoodfellowSS14}, which computes a bounded perturbation for a single given a fixed input.
+The first is based on the fast gradient sign method (FGSM) proposed in Ref.~\cite{DBLP:journals/corr/GoodfellowSS14}, which computes a bounded perturbation for a single given a fixed input.
 The second is a broader attack utilizing an adversarial neural network which learns to compute perturbations for arbitrary inputs.
 The former method is the most literal realization of our ``demon'', as each jet is individually modified to optimally confound the network.
-The latter demonstrates that there exist more universal\footnote{need a better word?? continuous?} systematic mappings between one dataset and another which systematically affect network performance; in particular the network learns to generalize its perturbation to jets the training data.
+The latter demonstrates that there exist a universal mapping between one dataset and another which systematically affects network performance; in particular the network learns to generalize its perturbation to all jets in the training data.
 
 In both cases, our demon is tasked with transforming signal jets so as to solicit a background-like response from the benchmark classifier.
 In such a scenario, an experimental analysis optimized using the simulated signal model would be very likely to reject true signal events as background.
@@ -178,20 +170,20 @@ This in turn could lead to overconfidently excluding a theoretical hypothesis, o
 
 \subsection{Fast Gradient Sign Method}
 \label{subsec:fgsm}
-The FGSM method~\cite{DBLP:journals/corr/GoodfellowSS14} works by taking an individual jet $J_i$ and regressing the loss function to compute a \textit{bounded} perturbation $\delta J_i$, such that network's response to the input $J_i + \delta J_i$ tends towards some desired value.
+The FGSM method works by taking an individual jet $J_i$ and regressing the loss function to compute a \textit{bounded} perturbation $\delta J_i$, such that network's response to the input $J_i + \delta J_i$ tends towards some desired value.
 Specifically, the perturbation is given by:
 \begin{equation}
 \label{eq:FGSM}
-\delta J_i = \epsilon\left.\sign\left[\nabla_{J} \mathcal{L}\left(f(J), y_\mathrm{bg}\right)\right]\right\rvert_{J=J_i} \,,
+\delta J_i = \epsilon\left.\sign\left[\nabla_{J} \mathcal{L}_\text{XE}\left(f(J), y_\mathrm{bg}\right)\right]\right\rvert_{J=J_i} \,,
 \end{equation}
-where $\mathcal{L}$ is the binary crossentropy, and $y_\mathrm{bg}$ is the label corresponding to background events.
+where $\mathcal{L}_\text{XE}$ is the binary crossentropy loss function, and $y_\mathrm{bg}$ is the label corresponding to background events.
 The use of the $\sign$ of the gradient and the free parameter $\epsilon$ ensures that the perturbation of each input observable is bounded while moving approximately in the direction normal to the decision boundary.
 
-In our example, this gradient, like the input, is a $\nconst\times3$ tensor, where the quantities on second axis represent $\pt$, $\eta$, and $\phi$.
-We wish to ensure that the perturbation is small relative to experimental resolution, yet these observables have rather different scales associated to them.
-To accommodate this, we promote $\epsilon$ to a $1\times3$ tensor characterized by three parameters: $\epsilon = (\epsilon_{\pt}, \epsilon_\eta, \epsilon_\phi)$ where the multiplication in \ref{eq:FGSM} follows tensorflow broadcast semantics~\cite{tensorflow}.
+In our example, this gradient, like the input, is a $\nconst\times3$ tensor, where the quantities on the second axis represent $\pt$, $\eta$, and $\phi$.
+We want to ensure that the perturbation is small relative to experimental resolution, yet these observables have rather different scales associated to them.
+To accommodate this, we promote $\epsilon$ to a $1\times3$ tensor characterized by three parameters: $\epsilon = (\epsilon_{\pt}, \epsilon_\eta, \epsilon_\phi)$ where the multiplication in Eq.~\ref{eq:FGSM} follows tensorflow broadcast semantics~\cite{tensorflow}.
 
-This procedure may be applied iteratively by replacing $J_i \rightarrow J_i + \delta^{(k)} J_i$ in \ref{eq:FGSM}, where $\delta^{(k)}J_i$ is the result of the $k^\mathrm{th}$ iteration.
+This procedure may be applied iteratively by replacing $J_i \rightarrow J_i + \delta^{(k)} J_i$ in Eq.~\ref{eq:FGSM}, where $\delta^{(k)}J_i$ is the result of the $k^\mathrm{th}$ iteration.
 In this case, the scale of perturbations will be bounded by $k\epsilon$.
 Generally the success of the FGSM attack will depend on the size of the maximal perturbation tolerated, $k\epsilon$, the dimensionality of the input space, and the intrinsic robustness of the target network.
 
@@ -199,13 +191,12 @@ Generally the success of the FGSM attack will depend on the size of the maximal 
 
 In this approach, we train a second neural network $g$ for which both input and output are $\nconst\times 3$ tensors.
 The goal is to train $g$ to map $J\mapsto\delta J$, for an arbitrary jet such that the classifier network $f$ will perceive the input $J+\delta J$ as a background jet.
-The network $g$ is trained by minimizing the loss function:
-\begin{multline}
-g = \argmin_{g'}\E_{J\sim data} [ \mathcal{L}_{xe}(f(J+g'(J)), y_\mathrm{bg}) \\ + \lambda\mathcal{L}_{obs}(J, g'(J))] \,.
-\end{multline}
-Here, $\mathcal{L}_{xe}$ is the usual binary crossentropy loss function, and $\mathcal{L}_{obs}$ is in our example a family of loss functions that minimize the difference of jet-level observables between $J$ and $J+\delta J$.
-$\mathcal{L}_{obs}$ may also contain terms involving only $g'(J)$, in particular, it may include $L_2$ activity regularizers that encourage the perturbations output by network $g$ to be small.
-The parameter $\lambda$ controls how aggressively the adversary $g$ will attempt to confound the classifier $f$, versus preserving the jet-level observables.
+The network $g$ is trained by minimizing separate loss functions for signal and background defined by:
+\begin{align}
+\mathcal{L}_\text{signal}&=\log(1-f(g(J))),\\
+\mathcal{L}_\text{bg}&=(f(J)-g(J))^2+(\mathcal{O}(J)-\mathcal{O}(g(J))^2,
+\end{align}
+where $\mathcal{O}(J)$ is a $\mathbb{R}^{3N}\rightarrow \mathbb{R}$ function, representing the one-dimensional features to be used for validation.
 
 In our experiments, $g$ is a fully-connected network with \nlayerADV\ hidden layers, each with \nunitsADV\ units and ReLU activation.
 The final output layer has $\nconst\times 3$ units, with $\tanh$ activations.
@@ -216,29 +207,54 @@ Analogously to the bounding parameters $\epsilon$ in \ref{subsec:fgsm}, the outp
 
 \section{Results}
 
-In the example below, $\epsilon=(2,20,20)\times 10^{-4}$.  The process illustrated in Eq.~\ref{eq:FGSM} is repeated $N=10$ times.  Figure~\ref{fig:FGSM} blah...
+Figure~\ref{fig:FGSM} illustrates the impact of an FGSM attack on a single jet.   Describe the figure.
+
+%In the example below, $\epsilon=(2,20,20)\times 10^{-4}$.  The process illustrated in Eq.~\ref{eq:FGSM} is repeated $N=10$ times.  Figure~\ref{fig:FGSM} blah...
 
 \begin{figure}[h!]
 \centering
-\includegraphics[width=0.15\textwidth]{figures/panel_1.pdf}
-\includegraphics[width=0.15\textwidth]{figures/panel_3.pdf}
-\includegraphics[width=0.15\textwidth]{figures/panel_2.pdf}
-\includegraphics[width=0.23\textwidth]{figures/NN_FGSM.pdf}
-\includegraphics[width=0.23\textwidth]{figures/D2_FGSM.pdf}
-\caption{The application of FGSM to jets.  The top row of plots show image representations of a single jet before (left) and after (right) an FGSM perturbation.  The grayscale indicates the particle $p_T$.  The middle plot illustrates the difference between the plots.  The lower plots show NN (left) and $D_2$ histograms for signal and background before and after the FGSM perturbation.  Both sets of jets are perturbed by the same amount, yet the distribution of $D_2$ is largely unchanged. }
+\includegraphics[width=0.23\textwidth]{figures/panel_1.pdf}
+\includegraphics[width=0.23\textwidth]{figures/panel_2.pdf}\\
+\includegraphics[width=0.23\textwidth]{figures/panel_3.pdf}
+\caption{A visualization of the FGSM perturbation on a single jet.  The top row of plots show image representations of a single jet before (left) and after (right) an FGSM perturbation.  The grayscale indicates the particle $p_T$.  The bottom plot illustrates the difference between the upper plots.  }
 \label{fig:FGSM}
 \end{figure}
 
-While the FGSM illustrated the sensitivity to small perturbations for single jets, it does not show how systematic ensemble perturbations could modify the classifier performance.  Blah...
+The application of the FGSM attack to an ensemble of jets is shown in Fig.~\ref{fig:FGSM2}.  Describe the figure.  Should mention how you do the attack on $D_2$.
 
-\begin{align}
-\label{eq:global}
-g=\text{argmin}_{g'}\left[\mathcal{L}_\text{xe}(f(J+\delta J),\bar{y})+\mathcal{L}_\text{jet}(J,J+\Delta J)\right],
-\end{align}
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.23\textwidth]{figures/NN_FGSM.pdf}
+\includegraphics[width=0.23\textwidth]{figures/D2_FGSM.pdf}
+\caption{The NN (left) and $D_2$ histograms for signal and background before and after the FGSM perturbation.  Both sets of jets are perturbed by the same amount, yet the distribution of $D_2$ is largely unchanged. }
+\label{fig:FGSM2}
+\end{figure}
 
+While the FGSM illustrated the sensitivity to small perturbations for single jets, it does not show how systematic ensemble perturbations could modify the classifier performance.  Figure~\ref{fig:method2} is the result of an attack by an adversarial neural network.  Describe the figure. 
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/MethodBFig2.pdf}
+\caption{The effect of the adversarial attack, overlaid upon signal/background distributions for: (top) the classifier network response, (center) the jet transverse momentum, and (bottom) the jet invariant mass. }
+\label{fig:method2}
+\end{figure}
+
+The impact of the adversarial attack is quantified in Fig.~\ref{fig:method2b}.  Describe the figure. 
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/MethodBFig1.pdf}
+\caption{Effect of adversary on discovery significance: the pre-fit discovery significance (black) is the significance for which the analysis would be optimized, using only simulated events without considering the effect of the adversary. Upon unblinding, and assuming no signal detection, the post-fit (red) significance would account for the observed shift in background due to the adversary; however, the corresponding effect on the signal is neglected. In reality, the adversarial demon would affect both signal and background (violet), greatly reducing statistical significance and leading to overconfidence in the measurement. }
+\label{fig:method2b}
+\end{figure}
+
+%In general, high-dimensional inputs are quite susceptible to attack on the individual jet constituents, even at levels of perturbation which are small compared to detector resolution. However, is also important to consider the effect such attacks have on the observable physical quantities which are in practice validated by physicists. To this end, we introduce additional regularizing constraints on the attack by requiring the adversarially-perturbed event data leave various high-level observables, such as jet mass, in tact.
+
+\clearpage
 
 \section{Conclusions}
-Conclusions and outlook...
+
+The interest in deep learning methods for HEP has grown significantly since the first studies were published five years ago~\cite{Baldi:2014kfa}.  While these methods hold great promise to enhance our sensitivity to discover new fundamental properties of nature, the traditional analysis techniques must be adapted.  We have shown that neural networks using high-dimensional low-level features are highly sensitive to mis-modeled inputs.  Current uncertainty estimates may not be accurate for high-dimensional features and traditional validation methods may not be able to detect such perturbations.  We have proposed adversarial approaches to bound the sensitivity of a deep learning-based analysis procedure.  While this is a crude bound, it may be used to establish robustness or diagnose situations where further studies are needed.  This work will hopefully begin a dialogue within the community about the robust application of deep learning to experimental measurements and searches.
 
 \section*{ACKNOWLEDGMENTS}
 
