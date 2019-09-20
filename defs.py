@@ -3,28 +3,41 @@ MIN_PT       = 0.5e-3 # minimum constituent pT (TeV)
 JET_MASS_MIN = 60e-3 # minimum jet mass (TeV)
 JET_PT_MIN   = 300e-3 # minimum jet pT (TeV)
 
-CLUSTER_ARGS = dict(
-    ntrk       = 64,     # max number of constituents
-    min_ntrk   = 4,       # require 4 so that D2 is well-defined
-    min_jet_pt = 1.5,     # minimum jet pT (TeV)
-    min_trk_pt = 1e-3,    # minimum constituent pT (TeV)
-    R          = 1.0,     # anti kT distance parameter
-    unit       = 1e-3,    # work in units of TeV for dynamic range
+
+BENCHMARK_LL_ARGS = dict(
+    n_units           = (1024,1024,1024,1024),
+    dropout           = 0.5,
+    res               = False,
+    n_res_units       = 384,
+    batch_norm        = False,
+    shuffle_particles = False,
+    randomize_phi     = True,
 )
 
-# best res: l=3, u=512/256
-BENCHMARK_LL_ARGS = dict(
-    n_layers    = 5,
-    n_units     = 1024,
-    dropout     = 0.0,
-    res         = False,
-    n_res_units = 384,
-    batch_norm  = False,
+BENCHMARK_LL_SHUF_ARGS = dict(
+    n_units           = (2048,1024,512,512,),
+    dropout           = 0.0,
+    res               = False,
+    n_res_units       = 384,
+    
+    batch_norm        = False,
+    shuffle_particles = True,
+    randomize_phi     = False,
+)
+
+BENCHMARK_PFN_ARGS = dict(
+    #Phi_sizes = (100,128),
+    #F_sizes = (100, 100),
+    Phi_sizes     = (256,256,256,256,256),
+    F_sizes       = (256,256,256,256,256),
+    Phi_dropouts  = 0.,
+    F_dropouts    = 0.,
+    randomize_phi = True,
 )
 
 BENCHMARK_HL_ARGS = dict(
-    n_feature  = 5,
-    n_layers   = 5,
+    features   = ('pt','eta','mass','D2',),
+    n_layers   = 3,
     n_units    = 384,
     dropout    = 0.25,
 )

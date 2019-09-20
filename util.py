@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 import itertools as it
@@ -8,21 +9,35 @@ from keras import callbacks
 from sklearn.metrics import roc_auc_score, roc_curve
 import matplotlib.pyplot as plt
 
-from pyjet import cluster,DTYPE_PTEPM
+import defs
 
-def load_data():
-    d = pd.read_hdf("events.h5")
+def load_data(path='data'):
+    f_bg = np.load(os.path.join(path,'particles_jj.npz'))
+    jets_bg = f_bg['jets']
+    consts_bg = f_bg['constituents'][:,:defs.N_CONST]
 
-    is_bg = (d[2100] == 0)
-    is_sig = (d[2100] == 1)
+    f_sig = np.load(os.path.join(path,'particles_yz.npz'))
+    jets_sig = f_sig['jets']
+    consts_sig = f_sig['constituents'][:,:defs.N_CONST]
 
-    # pull out the bg and signal events separately, and reshape to (Nevt, Nparticle, 3)
-    # the last axis is (pT,eta,phi)
-    # Also, there's generally much more BG than we want, so drop half of it.
-    bg = d[is_bg][::3].to_numpy()[:,:-1].reshape((-1,700,3))
-    sig = d[is_sig].to_numpy()[:,:-1].reshape((-1,700,3))
+    # jet-level pT and mass cuts
+    pass_bg = (jets_bg[:,3]>defs.JET_MASS_MIN)*(jets_bg[:,0]>defs.JET_PT_MIN)
+    pass_sig = (jets_sig[:,3]>defs.JET_MASS_MIN)*(jets_sig[:,0]>defs.JET_PT_MIN)
 
-    return sig, bg
+    jets_bg = jets_bg[pass_bg]
+    consts_bg = consts_bg[pass_bg]
+    jets_sig = jets_sig[pass_sig]
+    consts_sig = consts_sig[pass_sig]
+
+    # kill low-pT constituents
+    consts_bg[:,:,0][consts_bg[:,:,0]<defs.MIN_PT] = 0
+    consts_sig[:,:,0][consts_sig[:,:,0]<defs.MIN_PT] = 0
+
+
+    #nc_bg = np.sum(bg_consts[:,:,0]>0, axis=-1)
+    #nc_sig = np.sum(sig_consts[:,:,0]>0, axis=-1)
+    
+    return consts_bg, consts_sig, jets_bg, jets_sig
 
 
 # Takes an input of shape (Nevt, Nparticle, 3), and returns a tuple (jets, consts):
@@ -88,7 +103,7 @@ def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, unit=1, min_ntrk=None, m
         
     return np.array(ljets), np.array(consts)
 
-def format_dataset(bg, sig, validation_fraction=0.15, shuffle=True):
+def format_dataset(bg, sig, validation_fraction=0.15, shuffle=False):
     n_per_class = min(bg.shape[0], sig.shape[0])
     
     n_val = int(validation_fraction * n_per_class)
@@ -251,16 +266,58 @@ def jet_tf(x):
     
     return tf.concat([jet_pT, jet_eta, jet_phi, jet_mass], axis=-1)
 
-# Layer to add a random phi offset to all constituents
-class RandomizePhi(layers.Layer):
-    def __init__(self, **kwargs):
-        super(RandomizePhi, self).__init__(**kwargs)
+class AngleQuadrature(layers.Layer):
+    def __init__(self, idxs, axis=-1, **kwargs):
+        super(AngleQuadrature, self).__init__(**kwargs)
+        
+        if type(idxs) is int:
+            idxs = [idxs]
+        self.idxs = idxs
+        self.axis = axis
+        
+    def call(self, inputs, training=None):
+        features_in = tf.split(inputs, inputs.shape[self.axis], axis=self.axis)
+        features_out = []
+        for i,f in enumerate(features_in):
+            if i in self.idxs:
+                features_out.append(tf.sin(f))
+                features_out.append(tf.cos(f))
+            else:
+                features_out.append(f)
+        return tf.concat(features_out, axis=self.axis)
+    
+    def compute_output_shape(self, input_shape):
+        output_shape = np.array(input_shape)
+        output_shape[self.axis] += len(self.idxs)
+        return tuple(output_shape)
+
+# Layer to add a random angular offset per batch entry,
+# for a specific index or list of indices along the given axis
+class RandomizeAngle(layers.Layer):
+    def __init__(self, idxs, axis=-1, train_only=True, **kwargs):
+        super(RandomizeAngle, self).__init__(**kwargs)
+        if type(idxs) is int:
+            idxs = [idxs]
+        self.idxs = idxs
+        self.axis = axis
+        self.train_only = train_only
     
     def call(self, inputs, training=None):
-        pt, eta, phi = tf.split(inputs, 3, axis=-1)
-        phi_new = phi + tf.random_uniform((tf.shape(phi)[0],1,1),-np.pi,np.pi)
-        noised = tf.concat([pt,eta,phi_new], axis=-1)
-        return K.in_train_phase(noised, inputs, training=training)
+        #pt, eta, phi = tf.split(inputs, 3, axis=-1)
+        features_in = tf.split(inputs, inputs.shape[self.axis], axis=self.axis)
+        #phi_new = phi + tf.random_uniform((tf.shape(phi)[0],1,1),-np.pi,np.pi)
+        phi_offsets = tf.random_uniform((tf.shape(inputs)[0],) + (1,)*(len(inputs.shape)-1), -np.pi, np.pi)
+        features_noised = []
+        for i,f in enumerate(features_in):
+            if i in self.idxs:
+                features_noised.append(f + phi_offsets)
+            else:
+                features_noised.append(f)
+        noised = tf.concat(features_noised, axis=self.axis)
+        if self.train_only:
+            return K.in_train_phase(noised, inputs, training=training)
+        else:
+            return noised
     
     def compute_output_shape(self, input_shape):
         return input_shape
@@ -291,8 +348,8 @@ class JetVector(layers.Layer):
     def compute_output_shape(self, input_shape):
         return (input_shape[0], 4)
 
-# Layer to compute jet kinematics (pT, eta, phi, m) as well as
-# C2 and D2 from an input list of constituents (pT, eta, phi)
+# Layer to compute jet ECF values, as well as  D2 from an
+# input list of constituents (pT, eta, phi)
 class JetECF(layers.Layer):
     def __init__(self, beta=2, **kwargs):
         super(JetECF, self).__init__(**kwargs)
@@ -306,23 +363,11 @@ class JetECF(layers.Layer):
 
         #c2 = ecf3 * ecf1 / tf.square(ecf2)
         #denominator = tf.clip_by_value(tf.pow(ecf2, 3), 1e-9, 1e15)
+        
         denominator = tf.pow(ecf2, 3) + K.epsilon()
         d2 = ecf3 * tf.pow(ecf1, 3) / denominator
         
-        #jet_vars = tf.concat([jet_vec, c2, d2], axis=-1)
-        
-        #jet_vars = tf.concat([jet_vec, ecf1, ecf2, ecf3], axis=-1)
         jet_vars = tf.concat([ecf1, ecf2, ecf3, d2], axis=-1)
-        
-        '''
-        if self.jet_vars_shift is not None:
-            shift = tf.constant(np.reshape(self.jet_vars_shift, (1,-1)))
-            jet_vars = jet_vars - shift
-        if self.jet_vars_scale is not None:
-            scale = tf.constant(np.reshape(self.jet_vars_scale, (1,-1)))
-            jet_vars = jet_vars/scale
-        '''
-            
         
         return jet_vars
     
