@@ -174,18 +174,13 @@ The FGSM method works by taking an individual jet $J_i$ and regressing the loss 
 Specifically, the perturbation is given by:
 \begin{equation}
 \label{eq:FGSM}
-\delta J_i = \epsilon\left.\sign\left[\nabla_{J} \mathcal{L}_\text{XE}\left(f(J), y_\mathrm{bg}\right)\right]\right\rvert_{J=J_i} \,,
+\delta J_i = \left.\sign\left[\nabla_{J} \mathcal{L}_\text{XE}\left(f(J), y_\mathrm{bg}\right)\right]\right\rvert_{J=J_i} \,,
 \end{equation}
-where $\mathcal{L}_\text{XE}$ is the binary crossentropy loss function, and $y_\mathrm{bg}$ is the label corresponding to background events.
-The use of the $\sign$ of the gradient and the free parameter $\epsilon$ ensures that the perturbation of each input observable is bounded while moving approximately in the direction normal to the decision boundary.
+where $\mathcal{L}_\text{XE}$ is the binary crossentropy loss function, and $y_\mathrm{bg}$ is the label corresponding to background events.  The size of the gradient is scaled by a free parameter $\epsilon$, as described below.  This ensures that the perturbation of each input observable is bounded while moving approximately in the direction normal to the decision boundary. 
 
 In our example, this gradient, like the input, is a $\nconst\times3$ tensor, where the quantities on the second axis represent $\pt$, $\eta$, and $\phi$.
 We want to ensure that the perturbation is small relative to experimental resolution, yet these observables have rather different scales associated to them.
-To accommodate this, we promote $\epsilon$ to a $1\times3$ tensor characterized by three parameters: $\epsilon = (\epsilon_{\pt}, \epsilon_\eta, \epsilon_\phi)$ where the multiplication in Eq.~\ref{eq:FGSM} follows tensorflow broadcast semantics~\cite{tensorflow}.
-
-This procedure may be applied iteratively by replacing $J_i \rightarrow J_i + \delta^{(k)} J_i$ in Eq.~\ref{eq:FGSM}, where $\delta^{(k)}J_i$ is the result of the $k^\mathrm{th}$ iteration.
-In this case, the scale of perturbations will be bounded by $k\epsilon$.
-Generally the success of the FGSM attack will depend on the size of the maximal perturbation tolerated, $k\epsilon$, the dimensionality of the input space, and the intrinsic robustness of the target network.
+To accommodate this, and ensure a physically relevant perturbation, the perturbation is given by $J_i\mapsto J_i(1+\epsilon_{\pt}\delta J_i)+\epsilon_\Omega\delta J_i$, where $\epsilon_{\pt}=(\epsilon,0,0)$ and $\epsilon_\Omega=(0,\epsilon,\epsilon)$.  In principle, these $\epsilon$ do not need to be the same, but are chosen here to all be $\epsilon=0.001$.   All multiplications in Eq.~\ref{eq:FGSM} follow tensorflow broadcast semantics~\cite{tensorflow}.  This procedure is iteratively applied 10 times so the scale of the perturbations are bounded by 0.01.
 
 \subsection{Adversarial Network Method}
 
@@ -207,26 +202,13 @@ Analogously to the bounding parameters $\epsilon$ in \ref{subsec:fgsm}, the outp
 
 \section{Results}
 
-Figure~\ref{fig:FGSM} illustrates the impact of an FGSM attack on a single jet.   Describe the figure.
-
-%In the example below, $\epsilon=(2,20,20)\times 10^{-4}$.  The process illustrated in Eq.~\ref{eq:FGSM} is repeated $N=10$ times.  Figure~\ref{fig:FGSM} blah...
+The application of the FGSM attack to an ensemble of jets is shown in Fig.~\ref{fig:FGSM2}.  
 
 \begin{figure}[h!]
 \centering
-\includegraphics[width=0.23\textwidth]{figures/panel_1.pdf}
-\includegraphics[width=0.23\textwidth]{figures/panel_2.pdf}\\
-\includegraphics[width=0.23\textwidth]{figures/panel_3.pdf}
-\caption{A visualization of the FGSM perturbation on a single jet.  The top row of plots show image representations of a single jet before (left) and after (right) an FGSM perturbation.  The grayscale indicates the particle $p_T$.  The bottom plot illustrates the difference between the upper plots.  }
-\label{fig:FGSM}
-\end{figure}
-
-The application of the FGSM attack to an ensemble of jets is shown in Fig.~\ref{fig:FGSM2}.  Describe the figure.  Should mention how you do the attack on $D_2$.
-
-\begin{figure}[h!]
-\centering
-\includegraphics[width=0.23\textwidth]{figures/NN_FGSM.pdf}
-\includegraphics[width=0.23\textwidth]{figures/D2_FGSM.pdf}
-\caption{The NN (left) and $D_2$ histograms for signal and background before and after the FGSM perturbation.  Both sets of jets are perturbed by the same amount, yet the distribution of $D_2$ is largely unchanged. }
+\includegraphics[width=0.45\textwidth]{figures/FGSM_Significance.pdf}\\
+\includegraphics[width=0.4\textwidth]{figures/FGSM_D2.pdf}
+\caption{Top: The relative discovery significance (true positive rate / square root of false positive rate) as a function of the classifier threshold for HL observables and LL observables before and after the FGSM attack described in Sec.~\ref{subsec:fgsm}.  Bottom: the $D_2$ observable before and after the FGSM attack for signal and background. }
 \label{fig:FGSM2}
 \end{figure}
 
