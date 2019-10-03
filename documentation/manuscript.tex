@@ -188,10 +188,11 @@ In this approach, we train a second neural network $g$ for which both input and 
 The goal is to train $g$ to map $J\mapsto\delta J$, for an arbitrary jet such that the classifier network $f$ will perceive the input $J+\delta J$ as a background jet.
 The network $g$ is trained by minimizing separate loss functions for signal and background defined by:
 \begin{align}
-\mathcal{L}_\text{signal}&=\log(1-f(g(J))),\\
-\mathcal{L}_\text{bg}&=(f(J)-g(J))^2+(\mathcal{O}(J)-\mathcal{O}(g(J))^2,
+\mathcal{L}_\text{sig}&=\log(1-f(g(J))),\\
+\mathcal{L}_\text{bg}&=\lambda_\mathrm{cls} (f(J)-f(g(J)))^2+ \lambda^{(i)}_\mathrm{obs} (\mathcal{O}^{(i)}(J)-\mathcal{O}^{(i)}(g(J))^2,
 \end{align}
-where $\mathcal{O}(J)$ is a $\mathbb{R}^{3N}\rightarrow \mathbb{R}$ function, representing the one-dimensional features to be used for validation.
+where the functions $\mathcal{O}^{(i)}(J)$ are functions $\mathbb{R}^{3N}\rightarrow \mathbb{R}$, representing the one-dimensional observable features to be preserved for validation.
+The tunable hyperparameters $\lambda_\mathrm{cls}, \lambda^{(i)}_\mathrm{obs} \geq 0$ encode the adversary's preference to preserve the target network response and observable features, respectively. for background events.
 
 In our experiments, $g$ is a fully-connected network with \nlayerADV\ hidden layers, each with \nunitsADV\ units and ReLU activation.
 The final output layer has $\nconst\times 3$ units, with $\tanh$ activations.
@@ -216,8 +217,17 @@ While the FGSM illustrated the sensitivity to small perturbations for single jet
 
 \begin{figure}[h!]
 \centering
-\includegraphics[width=0.45\textwidth]{figures/MethodBFig2.pdf}
-\caption{The effect of the adversarial attack, overlaid upon signal/background distributions for: (top) the classifier network response, (center) the jet transverse momentum, and (bottom) the jet invariant mass. }
+%\includegraphics[width=0.45\textwidth]{figures/MethodBFig2.pdf}
+\includegraphics[width=0.45\textwidth]{figures/pseudodata_NN_PFN.pdf} \\
+\includegraphics[width=0.45\textwidth]{figures/pseudodata_pt_PFN.pdf} \\
+\includegraphics[width=0.45\textwidth]{figures/pseudodata_mass_PFN.pdf} 
+\caption{Illustration of the effect of the adversarially-derived mismodelling for the low-level network.
+Events to the left of the oragnge dashed line are in the control region.
+Pseudodata (black points) are sampled from the BG distribution, with the adversarial perturbation applied; solid histograms show the unperturbed BG model.
+(Top) The region to the left of the orange dashed line is the validation region, while events to the right of the green line are in the signal region.
+(Middle, Bottom) The jet $\pt$ and mass distributions for events in the validation region.
+Good agreement between pseudodata and the background model is observed in the validation region.
+}
 \label{fig:method2}
 \end{figure}
 
@@ -225,9 +235,20 @@ The impact of the adversarial attack is quantified in Fig.~\ref{fig:method2b}.  
 
 \begin{figure}[h!]
 \centering
-\includegraphics[width=0.45\textwidth]{figures/MethodBFig1.pdf}
-\caption{Effect of adversary on discovery significance: the pre-fit discovery significance (black) is the significance for which the analysis would be optimized, using only simulated events without considering the effect of the adversary. Upon unblinding, and assuming no signal detection, the post-fit (red) significance would account for the observed shift in background due to the adversary; however, the corresponding effect on the signal is neglected. In reality, the adversarial demon would affect both signal and background (violet), greatly reducing statistical significance and leading to overconfidence in the measurement. }
+\includegraphics[width=0.45\textwidth]{figures/adversary_significance.pdf}
+\caption{Effect of adversarial mismodelling on discovery significance, for high-level and low-level feature networks.
+While the fully-trained low-level network is expected to perform better than the high-level network, it is also more strongly affected by an adversarial attack.
+However, when deliberately undertrained, the low-level network is intentionally undertrained, its susceptibility is reduced.
+}
 \label{fig:method2b}
+\end{figure}
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/adv_classifer_response.pdf}
+\caption{
+Comparison of the adversary's effect on signal and background distributions.
+}
 \end{figure}
 
 %In general, high-dimensional inputs are quite susceptible to attack on the individual jet constituents, even at levels of perturbation which are small compared to detector resolution. However, is also important to consider the effect such attacks have on the observable physical quantities which are in practice validated by physicists. To this end, we introduce additional regularizing constraints on the attack by requiring the adversarially-perturbed event data leave various high-level observables, such as jet mass, in tact.
