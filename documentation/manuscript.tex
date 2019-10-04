@@ -146,6 +146,7 @@ While certainly no such demon exists, we propose a procedure based on this conce
 This bound may then be used either to demonstrate the a given network architecture is manifestly robust against a certain class of systematics, or as a guiding metric to aid in the future development of more robust networks.
 
 \section{Benchmark Problem}
+\label{sec:benchmark}
 
 As one of the first examples from HEP in which both feature engineering and deep learning have demonstrated promising advantages, we consider the problem of jet classification~\cite{Larkoski:2017jix}.
 Jets are collimated sprays of particles resulting from high energy quark and gluon fragmentation, which are clustered~\cite{Cacciari:2008gp} into groups that approximate physical states in the original hard scattering process.
@@ -199,8 +200,9 @@ Nonetheless, as this attack yields a mathematically optimal perturbation to a gi
 Therefore, if a specific network is shown to be robust against the attack, it is also reasonable to conclude that the effect of any intractable systematic mismodellings present in physics simulations are safe to ignore.
 Conversely, if a network is shown to be sensitive to such attacks, the adversarially-induced systematic can be viewed only as a (potentially weak) upper bound for more realistic systematic effects.
 % @Ben, preceeding three sentences are dubious, needs to be qualified somehow. Ideas?
+% BPN: seems okay to me!  I added that we will discuss this more in the discussion section.
 In this case, a poor upper bound may indicate more careful scrutiny of a network's systematic exposure is warranted.
-The bound may also be used as a guiding metric in the development of more robust models.
+The bound may also be used as a guiding metric in the development of more robust models.  This is discussed more in Sec.~\ref{sec:discussion}.
 
 In this work we will present two different forms of adversarial attack.
 The first is based on the fast gradient sign method (FGSM) proposed in Ref.~\cite{DBLP:journals/corr/GoodfellowSS14}, which computes a bounded perturbation for a single given a fixed input.
@@ -227,6 +229,8 @@ We want to ensure that the perturbation is small relative to experimental resolu
 To accommodate this, and ensure a physically relevant perturbation, the perturbation is given by $J_i\mapsto J_i(1+\epsilon_{\pt}\delta J_i)+\epsilon_\Omega\delta J_i$, where $\epsilon_{\pt}=(\epsilon,0,0)$ and $\epsilon_\Omega=(0,\epsilon,\epsilon)$.  In principle, these $\epsilon$ do not need to be the same, but are chosen here to all be $\epsilon=0.001$.   All multiplications in Eq.~\ref{eq:FGSM} follow tensorflow broadcast semantics~\cite{tensorflow}.  This procedure is iteratively applied 10 times so the scale of the perturbations are bounded by 0.01.
 
 \subsection{Adversarial Network Method}
+\label{sec:adversarial}
+
 %%%% TODO: I have not looked at this at all since the first pass a few weeks ago, needs update -C
 In this approach, we train a second neural network $g$ for which both input and output are $\nconst\times 3$ tensors.
 The goal is to train $g$ to map $J\mapsto\delta J$, for an arbitrary jet such that the classifier network $f$ will perceive the input $J+\delta J$ as a background jet.
@@ -245,7 +249,79 @@ Analogously to the bounding parameters $\epsilon$ in \ref{subsec:fgsm}, the outp
 
 %To compare the sensitivity of a deep neural network trained directly on the natural high-dimensionality with traditional methods, a second network is trained whose first layer is a ratio of energy correlation functions~\cite{Larkoski:2013eya} known as $D_2$~\cite{Larkoski:2014gra}.
 
+\section{Results}
+
+If $S$ and $B$ are the number of signal and background events, respectively, then in the asymptotic limit (including $S + B\gg 1$, $S\ll B$~\cite{Cowan:2010js}), the expected statistical significance of the signal in units of standard deviations is $S/\sqrt{B}$.  After considering only events that pass a classifier threshold, the relative change in the significance is $\epsilon_S/\sqrt{\epsilon_B}$, where $\epsilon_S$ is the true positive rate (signal efficiency) and $\epsilon_B$ is the false positive rate (background efficiency).   A classifier is only useful for improving the sensitivity of a search if this \textit{relative discovery significance} exceeds unity.  The relative discovery significance for both the LL and HL classifiers are shown in Fig.~\ref{fig:FGSM2}.  As also observed with the AUC in Sec.~\ref{sec:benchmark}, the LL classifier is more powerful than the HL classifier, with peak relative discovery significances of about 2.5 and 1.5, respectively.   Figure~\ref{fig:FGSM2} additionally shows the relative discovery significance after the application of the application of the FGSM.  This bounded perturbation is only applied to signal events and designed to make them look more like background events.  Both the LL and HL relative discovery significance are degraded by this perturbation by about 30\%.  Additionally, the optimal classifier threshold shifts for the HL case, so a threshold based on the nominal simulation would actually have a relative discovery significance less than unity in the perturbed simulation.
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/FGSM_Significance.pdf}
+\caption{The relative discovery significance as a function of the classifier threshold for HL observables and LL observables before and after the FGSM perturbation.}
+\label{fig:FGSM2}
+\end{figure}
+
+The FGSM attack has bounded perturbations on the jet constituent four-vectors, but is otherwise unconstrained.  Figure~\ref{fig:FGSM:distributions} shows the modifications to various observables as a result of the FGSM attack.   Due to the limited size of the perturbation, the qualitative shapes of the signal $\pt$, mass, and $D_2$ distributions are the same and after the FGSM perturbation.  Of these, the mass distribution is most affected.  The distributions of the classifier outputs are shifted to the left, which is the reason that the dashed curves degrade in Sec.~\ref{fig:FGSM2}.
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.35\textwidth]{figures/FGSM/FGSM_NN_LL.pdf}
+\includegraphics[width=0.35\textwidth]{figures/FGSM/FGSM_NN_HL.pdf}
+\includegraphics[width=0.35\textwidth]{figures/FGSM/FGSM_pT.pdf}
+\includegraphics[width=0.35\textwidth]{figures/FGSM/FGSM_mass.pdf}
+\includegraphics[width=0.35\textwidth]{figures/FGSM/FGSM_D2.pdf}
+\caption{The classifier output and various observables before and after the FGSM attack for signal and background.  Only 500 signal jets are used for the FGSM perturbation.}
+\label{fig:FGSM:distributions}
+\end{figure}
+
+While the FGSM perturbation is illustrative, it is too synthetic because only the signal events are attacked and there are no constraints on HL observables that can be validated.  The adversarial attack described in Sec.~\ref{sec:adversarial} avoids both of these features.  The adversarial analog to Fig.~\ref{fig:FGSM2} is presented in Fig.~\ref{fig:method2b}.   For these relative discovery significance curves, both the signal and background distributions are perturbed, where the attack depends only on the phase space and not on the class label.  The degradation in the relative discovery significance is comparable to the FGSM for the fully rained LL network, but is significantly reduced for the HL network.  As some of the HL observables can be directly validated in the control region and are accordingly constrained for the background in the network, the effectiveness of the adversarial attack is reduced.
+
+In addition to the baseline LL and HL networks, Fig.~\ref{fig:method2b} also presents undertrained LL networks.   These classifiers are purposefully undertrained.  In particular, the network labeled `undertrained' has a similar performance (maximum relative discovery significance) as the HL network.  However, this network is nearly insensitive to the adversarial attack.  This suggests that the additional information used by the LL network that is not captured by the HL features is more sensitive to small perturbations than the theoretically motivated HL observables.  Furthermore, it could be that undertraining can be a useful regularization technique to build in analysis robustness.  The `mostly trained' network in Fig.~\ref{fig:method2b} indicates that the relative loss in performance from a similarly bounded attack inversely scales with the amount of undertraining. 
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/adversary_significance.pdf}
+\caption{Effect of adversarial mismodelling on discovery significance, for high-level and low-level feature networks.
+While the fully-trained low-level network is expected to perform better than the high-level network, it is also more strongly affected by an adversarial attack.
+However, when deliberately undertrained, the low-level network is intentionally undertrained, its susceptibility is reduced.
+\textbf{Chase: please change to the relative discovery significance as in Fig.~\ref{fig:FGSM2}.}}
+\label{fig:method2b}
+\end{figure}
+
+Representative HL features and the classifier distributions for the adversarial attack are presented in Fig.~\ref{fig:distributionsadversary}.  Even though the adversary attack affects both signal and background distributions, the background distributions are nearly identical before and after the perturbation.  In contrast, the classifier and mass distributions are shifted for the signal.  The implications for these potential perturbations for a realistic analysis is presented in Fig.~\ref{fig:method2}.  In particular, a the classifier is used to construct the control region and signal region.  `Observations' are samples from the perturbed simulation and the `Expected' prediction is the unperturbed simulation.  A validation region in between the control and signal regions can be used to validate the quality of the background model.  Given the small size of the perturbation, no scaling factor is required to scale the simulation in the control region.  Furthermore, the jet $\pt$ and jet mass distributions in the validation region agree well between the Observed and Expected values.  Despite this agreement, the discovery sensitivity for a potential signal is reduced by about 20\% as shown in Fig.~\ref{fig:method2b}.
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/adv_classifer_response.pdf}\\
+\includegraphics[width=0.45\textwidth]{figures/adv_classifer_response_HL.pdf}
+\caption{
+Comparison of the adversary's effect on signal and background distributions for the low-level network (top three) and high-level network (bottom three). \textbf{Chase: please rearrange like Fig.~\ref{fig:FGSM:distributions}.}
+\label{fig:distributionsadversary}
+}
+\end{figure}
+
+\begin{figure}[h!]
+\centering
+%\includegraphics[width=0.45\textwidth]{figures/MethodBFig2.pdf}
+\includegraphics[width=0.45\textwidth]{figures/pseudodata_NN_PFN.pdf} \\
+\includegraphics[width=0.45\textwidth]{figures/pseudodata_pt_PFN.pdf} \\
+\includegraphics[width=0.45\textwidth]{figures/pseudodata_mass_PFN.pdf} 
+\caption{Illustration of the effect of the adversarially-derived mismodelling for the low-level network.
+Events to the left of the oragnge dashed line are in the control region.
+Pseudodata (black points) are sampled from the BG distribution, with the adversarial perturbation applied; solid histograms show the unperturbed BG model.
+(Top) The region to the left of the orange dashed line is the validation region, while events to the right of the green line are in the signal region.
+(Middle, Bottom) The jet $\pt$ and mass distributions for events in the validation region.
+Good agreement between pseudodata and the background model is observed in the validation region.
+}
+\label{fig:method2}
+\end{figure}
+
+
+%In general, high-dimensional inputs are quite susceptible to attack on the individual jet constituents, even at levels of perturbation which are small compared to detector resolution. However, is also important to consider the effect such attacks have on the observable physical quantities which are in practice validated by physicists. To this end, we introduce additional regularizing constraints on the attack by requiring the adversarially-perturbed event data leave various high-level observables, such as jet mass, in tact.
+
 \section{Discussion}
+\label{sec:discussion}
+
+
 
 - talk about how it's somehow ``harder'' to attack the HL network
 % @Ben, why does this not seem to be the case for the FGSM?
@@ -264,81 +340,11 @@ Analogously to the bounding parameters $\epsilon$ in \ref{subsec:fgsm}, the outp
 
 - something else?
 
-\section{Results}
-
-The application of the FGSM attack to an ensemble of jets is shown in Fig.~\ref{fig:FGSM2}.  
-
-\begin{figure}[h!]
-\centering
-\includegraphics[width=0.45\textwidth]{figures/FGSM_Significance.pdf}
-\caption{Top: The relative discovery significance (true positive rate / square root of false positive rate) as a function of the classifier threshold for HL observables and LL observables before and after the FGSM attack described in Sec.~\ref{subsec:fgsm}.  }
-\label{fig:FGSM2}
-\end{figure}
-
-\begin{figure}[h!]
-\centering
-\includegraphics[width=0.4\textwidth]{figures/FGSM/FGSM_NN_LL.pdf}
-\includegraphics[width=0.4\textwidth]{figures/FGSM/FGSM_NN_HL.pdf}
-\includegraphics[width=0.4\textwidth]{figures/FGSM/FGSM_pT.pdf}
-\includegraphics[width=0.4\textwidth]{figures/FGSM/FGSM_mass.pdf}
-\includegraphics[width=0.4\textwidth]{figures/FGSM/FGSM_D2.pdf}
-\caption{The classifier output and various observables before and after the FGSM attack for signal and background. }
-\label{fig:FGSM2}
-\end{figure}
-
-While the FGSM illustrated the sensitivity to small perturbations for single jets, it does not show how systematic ensemble perturbations could modify the classifier performance.  Figure~\ref{fig:method2} is the result of an attack by an adversarial neural network.  Describe the figure. 
-
-\begin{figure}[h!]
-\centering
-%\includegraphics[width=0.45\textwidth]{figures/MethodBFig2.pdf}
-\includegraphics[width=0.45\textwidth]{figures/pseudodata_NN_PFN.pdf} \\
-\includegraphics[width=0.45\textwidth]{figures/pseudodata_pt_PFN.pdf} \\
-\includegraphics[width=0.45\textwidth]{figures/pseudodata_mass_PFN.pdf} 
-\caption{Illustration of the effect of the adversarially-derived mismodelling for the low-level network.
-Events to the left of the oragnge dashed line are in the control region.
-Pseudodata (black points) are sampled from the BG distribution, with the adversarial perturbation applied; solid histograms show the unperturbed BG model.
-(Top) The region to the left of the orange dashed line is the validation region, while events to the right of the green line are in the signal region.
-(Middle, Bottom) The jet $\pt$ and mass distributions for events in the validation region.
-Good agreement between pseudodata and the background model is observed in the validation region.
-}
-\label{fig:method2}
-\end{figure}
-
-The impact of the adversarial attack is quantified in Fig.~\ref{fig:method2b}.  Describe the figure. 
-
-\begin{figure}[h!]
-\centering
-\includegraphics[width=0.45\textwidth]{figures/adversary_significance.pdf}
-\caption{Effect of adversarial mismodelling on discovery significance, for high-level and low-level feature networks.
-While the fully-trained low-level network is expected to perform better than the high-level network, it is also more strongly affected by an adversarial attack.
-However, when deliberately undertrained, the low-level network is intentionally undertrained, its susceptibility is reduced.
-}
-\label{fig:method2b}
-\end{figure}
-
-\begin{figure}[h!]
-\centering
-\includegraphics[width=0.45\textwidth]{figures/adv_classifer_response.pdf}
-\caption{
-Comparison of the adversary's effect on signal and background distributions for the low-level network.
-}
-\end{figure}
-
-\begin{figure}[h!]
-\centering
-\includegraphics[width=0.45\textwidth]{figures/adv_classifer_response_HL.pdf}
-\caption{
-Comparison of the adversary's effect on signal and background distributions for the high-level network.
-}
-\end{figure}
-
-%In general, high-dimensional inputs are quite susceptible to attack on the individual jet constituents, even at levels of perturbation which are small compared to detector resolution. However, is also important to consider the effect such attacks have on the observable physical quantities which are in practice validated by physicists. To this end, we introduce additional regularizing constraints on the attack by requiring the adversarially-perturbed event data leave various high-level observables, such as jet mass, in tact.
-
 \clearpage
 
 \section{Conclusions}
 
-The interest in deep learning methods for HEP has grown significantly since the first studies were published five years ago~\cite{Baldi:2014kfa}.  While these methods hold great promise to enhance our sensitivity to discover new fundamental properties of nature, the traditional analysis techniques must be adapted.  We have shown that neural networks using high-dimensional low-level features are highly sensitive to mis-modeled inputs.  Current uncertainty estimates may not be accurate for high-dimensional features and traditional validation methods may not be able to detect such perturbations.  We have proposed adversarial approaches to bound the sensitivity of a deep learning-based analysis procedure.  While this is a crude bound, it may be used to establish robustness or diagnose situations where further studies are needed.  This work will hopefully begin a dialogue within the community about the robust application of deep learning to experimental measurements and searches.
+The interest in deep learning methods for HEP has grown significantly since the first studies were published five years ago~\cite{Baldi:2014kfa}.  While these methods hold great promise to enhance our sensitivity to discover new fundamental properties of nature, the traditional analysis techniques must be adapted.  We have shown that neural networks using high-dimensional low-level features (and to a lesser extent, high-dimensional high-level features) are highly sensitive to mis-modeled inputs.  Current uncertainty estimates may not be accurate for high-dimensional features and traditional validation methods may not be able to detect such perturbations.  We have proposed adversarial approaches to bound the sensitivity of a deep learning-based analysis procedure.  While this is a crude bound, it may be used to establish robustness or diagnose situations where further studies are needed.  This work will hopefully begin a dialogue within the community about the robust application of deep learning to experimental measurements and searches.
 
 \section*{ACKNOWLEDGMENTS}
 
