@@ -250,6 +250,7 @@ Analogously to the bounding parameters $\epsilon$ in \ref{subsec:fgsm}, the outp
 %To compare the sensitivity of a deep neural network trained directly on the natural high-dimensionality with traditional methods, a second network is trained whose first layer is a ratio of energy correlation functions~\cite{Larkoski:2013eya} known as $D_2$~\cite{Larkoski:2014gra}.
 
 \section{Results}
+\label{sec:results}
 
 If $S$ and $B$ are the number of signal and background events, respectively, then in the asymptotic limit (including $S + B\gg 1$, $S\ll B$~\cite{Cowan:2010js}), the expected statistical significance of the signal in units of standard deviations is $S/\sqrt{B}$.  After considering only events that pass a classifier threshold, the relative change in the significance is $\epsilon_S/\sqrt{\epsilon_B}$, where $\epsilon_S$ is the true positive rate (signal efficiency) and $\epsilon_B$ is the false positive rate (background efficiency).   A classifier is only useful for improving the sensitivity of a search if this \textit{relative discovery significance} exceeds unity.  The relative discovery significance for both the LL and HL classifiers are shown in Fig.~\ref{fig:FGSM2}.  As also observed with the AUC in Sec.~\ref{sec:benchmark}, the LL classifier is more powerful than the HL classifier, with peak relative discovery significances of about 2.5 and 1.5, respectively.   Figure~\ref{fig:FGSM2} additionally shows the relative discovery significance after the application of the application of the FGSM.  This bounded perturbation is only applied to signal events and designed to make them look more like background events.  Both the LL and HL relative discovery significance are degraded by this perturbation by about 30\%.  Additionally, the optimal classifier threshold shifts for the HL case, so a threshold based on the nominal simulation would actually have a relative discovery significance less than unity in the perturbed simulation.
 
@@ -321,24 +322,27 @@ Good agreement between pseudodata and the background model is observed in the va
 \section{Discussion}
 \label{sec:discussion}
 
+In the traditional HEP search paradigm, simulations are used to extrapolate predictions from a control region to a signal region.  Many sources of uncertainty on this extrapolation are well-constrained from auxiliary measurements on individual reconstructed objects, but others are mostly unvalidated from data.  For example, the modeling of strong force processes related to hadron formation is a complex multiscale process for which it is customary to compare two different models (such as Pythia~\cite{Sjostrand:2006za,Sjostrand:2007gs} and Herwig~\cite{Bahr:2008pv,Bellm:2015jjp} or Sherpa~\cite{Gleisberg:2008ta,Bothmann:2019yzt}).  These algorithms model the same physical processes in different ways, with a mix of formal and phenomenological insight.   Given the high dimensionality of collider events, using only one nuisance parameter puts a strong constraint on the phase space covered by uncertainty variations.  Data likely does not lie on the hyperline spanned by the difference between two models.
 
+The results of Sec.~\ref{sec:results} show that small perturbations in the high-dimensional phase space of collider events can significantly change the scientific conclusions from a given dataset.  If a complete uncertainty model in high-dimensions ensured that such perturbations were unphysical, then the adversarial results are irrelevant.  However, this is not the current situation described above.  Furthermore, networks trained on high-dimensional low-level inputs can outperform networks trained on high-level features precisely because they can take advantage of subtle correlations distributed across multiple dimensions.  Such correlations are particularly difficult to validate.  Significant physics input is required to build a full phase space uncertainty model. 
 
-- talk about how it's somehow ``harder'' to attack the HL network
+In the mean time, the adversarial methods may be the only rigorous method for determining how sensitive an analysis procedure is to high-dimensional mis-modeling.  A given analysis procedure, including the control/signal region definition and any auxiliary features that will be validated in data, can be attacked to quantify the impact on the signal sensitivity.  While general methods from AI safety may also be useful for making classifiers robust to attacks, Sec.~\ref{sec:results} demonstrated that physically-motivated features can be less sensitive to adversarial perturbations.  Additionally, purposefully under-training a network also appears to fortify an analysis procedure.
+
+Even though the adversarial methods presented in Sec.~\ref{sec:results} were able to make targeted attacks knowing the full form of the classifier, they are not the most general attack possible.  First of all, the perturbations were not allowed to split particles into multiple particles nor were they able to add new particles.  The modeling of such `soft' and `collinear' physics is particularly challenging and so such effects may be relevant perturbations for future studies.  Second, the true values of individual features or combinations of features are not observable - only distribution-level statistics can be validated.  In this work, per-constituent perturbations were constrained to ensure that observable distributions were approximately unperturbed.  However, one may be able to make large per-constituent perturbations while preserving properties of ensembles of events.  One may be able to generalize the procedures described here using constraints on sufficiently large mini-batches or even on entire datasets.  The PFN architecture may even be well-suited for using multi-event input given its additive (permutation invariant) structure. 
+
+%- talk about how it's somehow ``harder'' to attack the HL network
 % @Ben, why does this not seem to be the case for the FGSM?
+%BN: is this maybe because e.g. the mass is not constrained?
 
-- talk about how under-training the LL network makes it harder to attack
+%- talk about how this suggests the HDLL network is tuning into very fine-grained correlations, which are fundamentally invisible to the HL network, in order to outperform it. But these HDLL correlations are harder/impossible to model perfectly and/or validate preciesely.
 
-- talk about how this suggests the HDLL network is tuning into very fine-grained correlations, which are fundamentally invisible to the HL network, in order to outperform it. But these HDLL correlations are harder/impossible to model perfectly and/or validate preciesely.
+%- talk about implications of limiting the type of noise that the adversary is able to produce (in both FGSM and advnet version, it can only modify pT by Xper-cent and eta/phi by epsilon). collinear splitting, etc not represented.
 
-- talk about implications of limiting the type of noise that the adversary is able to produce (in both FGSM and advnet version, it can only modify pT by Xper-cent and eta/phi by epsilon). collinear splitting, etc not represented.
+%- talk about implications of being to validate only at the distribution level, but the advnet is only able to enforce this approximately by requiring each jet perturbation to remain at fixed mass, pt, etc
 
-- talk about implications of being to validate only at the distribution level, but the advnet is only able to enforce this approximately by requiring each jet perturbation to remain at fixed mass, pt, etc
+%- speculate about how this could be turned into a more robust test (e.g. distribution-level matching, perhaps with generative model? (un)conditional GaN as the adversary which matches all validat-able distributions rather than local perturbation per-jet).
 
-- speculate about how this could be turned into a more robust test (e.g. distribution-level matching, perhaps with generative model? (un)conditional GaN as the adversary which matches all validat-able distributions rather than local perturbation per-jet).
-
-- Pythia versus Herwig as a standard
-
-- something else?
+%- something else?
 
 \clearpage
 
