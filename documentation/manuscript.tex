@@ -156,20 +156,20 @@ All samples are simulated at parton-level using Madgraph5~\cite{Alwall:2014hca},
 The detector calorimeter hits are clustered using the anti-$k_t$ algorithm with radius parameter $R=1$~\cite{Cacciari:2008gp}, and only the highest-$\pt$ jet of each event is considered for the classification task.
 Furthermore, selected events must contain a jet with $\pt>\JetPtMin$ GeV and $m>\JetMassMin$ GeV and comprised of at least three constituents.
 
-After clustering, a jet $J_i$ is represented as a truncated list of $N_i\leq\nconst$ constituent 4-momenta $J_i = \{(\pt^k, \eta^k,\phi^k) \colon k = 1..N^i\}$\footnote{Using collider coordinates, $p_T$ is the particle momentum transverse to the collision axis, $\phi$ is the azimuthal angle and the pseudo-rapidity $\eta$ is $-\ln(\tan(\theta/2))$, where $\theta$ is the polar angle.}., corresponding to the calorimeter hits included in the jet, resulting in a data dimensionality of approximately 200.
+After clustering, a jet $J_i$ is represented as a truncated list of $N_i\leq\nconst$ constituent 4-momenta $J_i = \{(\pt^k, \eta^k,\phi^k) \colon k = 1,...,N_i\}$\footnote{Using collider coordinates, $\pt$ is the particle momentum transverse to the collision axis, $\phi$ is the azimuthal angle and the pseudo-rapidity $\eta$ is $-\ln(\tan(\theta/2))$, where $\theta$ is the polar angle.}.  The resulting dimensionality of the features used for learning is about 200.
 The $\pt$ of each constituent is expressed in units of TeV, resulting in a dynamic range that is of order unity.
-These jets are then uses as inputs to two different network architectures which are trained to discriminate signal jets from background.
+These jets are then uses as inputs to two different network architectures which are trained to discriminate signal jets from background jets.
 
 %As such, one can represent a jet $J_i$ by the momenta of its $N_i$ constituent particles $\{(p_{T,ij},\eta_{ij},\phi_{ij})\}\in\mathbb{R}^{3N_i}$, ignoring particle masses and other quantum numbers\footnote{Using collider coordinates, $p_T$ is the particle momentum transverse to the collision axis, $\phi$ is the azimuthal angle and the pseudo-rapidity $\eta$ is $-\ln(\tan(\theta/2))$, where $\theta$ is the polar angle.}.
 %A typical problem is to identify whether a jet originated from a quark/gluon state (background), or by the decay of some Lorentz boosted massive particle, in this case a $Z$ boson (signal).  Signal and background events are generated using Pythia~8~\cite{Sjostrand:2006za,Sjostrand:2007gs} with detector effects emulated by Delphes 3.4.1~\cite{deFavereau:2013fsa}.  Jets are clustered from reconstructed particle trajectories using Fastjet~\cite{Cacciari:2011ma,Cacciari:2005hq} vis pyjet~\cite{noel_dawe_2019_2672944} implementing the anti-$k_t$ algorithm with radius parameter $R=1$~\cite{Cacciari:2008gp}.
 %Each event is required to have a jet with $p_\mathrm{T} > 1.3\ \mathrm{TeV}$, and only the leading jet is considered.  These jets typically have $\mathcal{O}(100)$ constituents. 
 
 The first architecture, referred to as the \textit{High-level} (HL) model, is a simple fully-connected neural network, except that the first layer has no learnable parameters and instead explicitly calculates four jet-level observables from the input constituents: $\pt$, $\eta$, invariant mass, and $D_2$.
-The first three features simply represent the 4-vector associated with the jet cluster; the quantity $D_2$~\cite{Larkoski:2014gra} is motivated by QCD theory and designed to discriminate jets with radiation patterns consistent with multiple sub-jet axes, characteristic of boosted boson decays.
+The first three features simply represent the 4-vector associated with the entire jet; the quantity $D_2$~\cite{Larkoski:2014gra} is theoretically motivated from the strong force and designed to identify jets with radiation patterns consistent with two sub-jet axes, characteristic of Lorentz boosted boson decays.
 The remainder of the network is comprised of $\HLLayers$ dense layers, each with $\HLUnits$ units and ReLU activation, followed by a single output neuron with sigmoid activation.
 
 The second architecture, referred to as the \textit{Low-level} (LL) model, is a Particle Flow Network~\cite{Komiske:2018cqr}, which operates directly on the full list of input constituents.
-Although we also observed very similar results using a simple fully-connected network, the PFN architecture has the property of invariance with respect to permutations of the input constituents, which simplifies the interpretation later on.
+Although we also observed very similar results using a simple fully-connected network, the PFN architecture has the property of invariance with respect to permutations of the input constituents, which simplifies the interpretation as order perturbations have no impact on the result.
 The benchmark LL model has $\PfnPhiLayers$ layers in the $\Phi$ subnetwork and $\PfnFLayers$ layers in the $F$ subnetwork, all with $\PfnUnits$ units and ReLU activations.
 The final layer is again a single neuron with sigmoid activation.
 
@@ -232,15 +232,16 @@ In this approach, we train a second neural network $g$ for which both input and 
 The goal is to train $g$ to map $J\mapsto\delta J$, for an arbitrary jet such that the classifier network $f$ will perceive the input $J+\delta J$ as a background jet.
 The network $g$ is trained by minimizing separate loss functions for signal and background defined by:
 \begin{align}
-\mathcal{L}_\text{sig}&=\log(1-f(g(J))),\\
-\mathcal{L}_\text{bg}&=\lambda_\mathrm{cls} (f(J)-f(g(J)))^2+ \lambda^{(i)}_\mathrm{obs} (\mathcal{O}^{(i)}(J)-\mathcal{O}^{(i)}(g(J))^2,
+\mathcal{L}_\text{sig}&=\log(1-f(g(J))),\\\nonumber
+\mathcal{L}_\text{bg}&=\lambda_\mathrm{cls} (f(J)-f(g(J)))^2\\
+&\hspace{3mm}+\sum_i \lambda^{(i)}_\mathrm{obs} (\mathcal{O}^{(i)}(J)-\mathcal{O}^{(i)}(g(J))^2,
 \end{align}
 where the functions $\mathcal{O}^{(i)}(J)$ are functions $\mathbb{R}^{3N}\rightarrow \mathbb{R}$, representing the one-dimensional observable features to be preserved for validation.
-The tunable hyperparameters $\lambda_\mathrm{cls}, \lambda^{(i)}_\mathrm{obs} \geq 0$ encode the adversary's preference to preserve the target network response and observable features, respectively. for background events.
+The tunable hyperparameters $\lambda_\mathrm{cls}, \lambda^{(i)}_\mathrm{obs} \geq 0$ encode the adversary's preference to preserve the target network response and observable features, respectively, for background events.
 
 In our experiments, $g$ is a fully-connected network with \nlayerADV\ hidden layers, each with \nunitsADV\ units and ReLU activation.
 The final output layer has $\nconst\times 3$ units, with $\tanh$ activations.
-Analogously to the bounding parameters $\epsilon$ in \ref{subsec:fgsm}, the outputs of the final layer are bounded by applying a $\tanh$ activation functions and the axes corresponding to $\pt$, $\eta$, and $\phi$ are scaled by parameters $\rho_{\pt}$, $\rho_\eta$, and $\rho_\phi$ respectively.
+Analogously to the bounding parameters $\epsilon$ in \ref{subsec:fgsm}, the outputs of the final layer are bounded by applying a $\tanh$ activation functions and the axes corresponding to $\pt$, $\eta$, and $\phi$ are scaled by parameters $\rho_{\pt}$, $\rho_\eta$, and $\rho_\phi$, respectively.
 
 %To compare the sensitivity of a deep neural network trained directly on the natural high-dimensionality with traditional methods, a second network is trained whose first layer is a ratio of energy correlation functions~\cite{Larkoski:2013eya} known as $D_2$~\cite{Larkoski:2014gra}.
 
@@ -259,6 +260,8 @@ Analogously to the bounding parameters $\epsilon$ in \ref{subsec:fgsm}, the outp
 
 - speculate about how this could be turned into a more robust test (e.g. distribution-level matching, perhaps with generative model? (un)conditional GaN as the adversary which matches all validat-able distributions rather than local perturbation per-jet).
 
+- Pythia versus Herwig as a standard
+
 - something else?
 
 \section{Results}
@@ -268,7 +271,7 @@ The application of the FGSM attack to an ensemble of jets is shown in Fig.~\ref{
 \begin{figure}[h!]
 \centering
 \includegraphics[width=0.45\textwidth]{figures/FGSM_Significance.pdf}
-\caption{Top: The relative discovery significance (true positive rate / square root of false positive rate) as a function of the classifier threshold for HL observables and LL observables before and after the FGSM attack described in Sec.~\ref{subsec:fgsm}.  Bottom: the $D_2$ observable before and after the FGSM attack for signal and background. }
+\caption{Top: The relative discovery significance (true positive rate / square root of false positive rate) as a function of the classifier threshold for HL observables and LL observables before and after the FGSM attack described in Sec.~\ref{subsec:fgsm}.  }
 \label{fig:FGSM2}
 \end{figure}
 
