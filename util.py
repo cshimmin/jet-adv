@@ -9,9 +9,18 @@ from keras import callbacks
 from sklearn.metrics import roc_auc_score, roc_curve
 import matplotlib.pyplot as plt
 
+from scipy.stats import ks_2samp
+
 import defs
 
-def load_data(path='data'):
+from IPython.display import clear_output
+
+def load_data(path='data', jet_mass_min=None, jet_pt_min=None):
+    if jet_mass_min is None:
+        jet_mass_min = defs.JET_MASS_MIN
+    if jet_pt_min is None:
+        jet_pt_min = defs.JET_PT_MIN
+        
     f_bg = np.load(os.path.join(path,'particles_jj.npz'))
     jets_bg = f_bg['jets']
     consts_bg = f_bg['constituents'][:,:defs.N_CONST]
@@ -21,8 +30,8 @@ def load_data(path='data'):
     consts_sig = f_sig['constituents'][:,:defs.N_CONST]
 
     # jet-level pT and mass cuts
-    pass_bg = (jets_bg[:,3]>defs.JET_MASS_MIN)*(jets_bg[:,0]>defs.JET_PT_MIN)
-    pass_sig = (jets_sig[:,3]>defs.JET_MASS_MIN)*(jets_sig[:,0]>defs.JET_PT_MIN)
+    pass_bg = (jets_bg[:,3]>jet_mass_min)*(jets_bg[:,0]>jet_pt_min)
+    pass_sig = (jets_sig[:,3]>jet_mass_min)*(jets_sig[:,0]>jet_pt_min)
 
     jets_bg = jets_bg[pass_bg]
     consts_bg = consts_bg[pass_bg]
@@ -376,7 +385,7 @@ class JetECF(layers.Layer):
     
 
 class HistoryCB(callbacks.Callback):
-    def __init__(self, val_data=None, batch_size=512, **kwargs):
+    def __init__(self, live_metrics=None, val_data=None, ks_ref=None, pt_ref=None, mass_ref=None, batch_size=512, **kwargs):
         super(HistoryCB, self).__init__(**kwargs)
         
         self.epoch = []
@@ -387,6 +396,16 @@ class HistoryCB(callbacks.Callback):
         else:
             self.X_val = self.y_val = None
         self.batch_size = batch_size
+        self.ks_ref = ks_ref
+        self.live_metrics = live_metrics
+        self.live_nskip = 2
+        self.live_figsize = plt.figaspect(0.4)
+        self.live_layout = None
+        self.pt_ref = pt_ref
+        self.mass_ref = mass_ref
+    
+    def on_train_begin(self, logs={}):
+        self._fig = None
         
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
@@ -397,7 +416,38 @@ class HistoryCB(callbacks.Callback):
         
         if self.X_val is not None:
             y_pred = self.model.predict(self.X_val, batch_size=self.batch_size)
+            self.latest_y_pred = y_pred
             self.history.setdefault('val_auc', []).append(roc_auc_score(self.y_val, y_pred))
+            
+            if self.ks_ref is not None:
+                self.history.setdefault('val_ks', []).append(ks_2samp(self.ks_ref.squeeze(), y_pred.squeeze())[0])
+                self.history.setdefault('val_ks_bg', []).append(ks_2samp(self.ks_ref[self.y_val==0,0], y_pred[self.y_val==0,0])[0])
+                self.history.setdefault('val_ks_sig', []).append(ks_2samp(self.ks_ref[self.y_val==1,0], y_pred[self.y_val==1,0])[0])
+            
+            if self.pt_ref is not None or self.mass_ref is not None:
+                xpred = self.model.adversary.predict(self.X_val,batch_size=self.batch_size)
+                jpred = self.model.calc.predict(xpred,batch_size=self.batch_size)
+                
+            if self.pt_ref is not None:
+                self.history.setdefault('val_pt_ks', []).append(ks_2samp(self.pt_ref, jpred[:,0])[0])
+                self.history.setdefault('val_pt_ks_bg', []).append(ks_2samp(self.pt_ref[self.y_val==0], jpred[self.y_val==0,0])[0])
+                self.history.setdefault('val_pt_ks_sig', []).append(ks_2samp(self.pt_ref[self.y_val==1], jpred[self.y_val==1,0])[0])
+                
+            if self.mass_ref is not None:
+                self.history.setdefault('val_mass_ks', []).append(ks_2samp(self.mass_ref, jpred[:,0])[0])
+                self.history.setdefault('val_mass_ks_bg', []).append(ks_2samp(self.mass_ref[self.y_val==0], jpred[self.y_val==0,3])[0])
+                self.history.setdefault('val_mass_ks_sig', []).append(ks_2samp(self.mass_ref[self.y_val==1], jpred[self.y_val==1,3])[0])
+        
+        
+        if self.live_metrics:
+            clear_output(wait=True)
+            if 'val_auc' in self.live_metrics:
+                print("Validation AUC:", self.history['val_auc'][-1])
+                print("          best:", np.max(self.history['val_auc']))
+                print("         ibest: %d/%d"%(np.argmax(self.history['val_auc'])+1, self.epoch_total))
+            self.plot(self.live_metrics, figsize=self.live_figsize, layout=self.live_layout, nskip=self.live_nskip)
+            plt.show()
+        
     
     def plot(self, metrics, layout=None, figsize=None, nskip=0):
         if isinstance(metrics, str):
@@ -410,17 +460,31 @@ class HistoryCB(callbacks.Callback):
         
         plt.figure(figsize=figsize)
         for i,m in enumerate(metrics):
+            if m is None:
+                continue
+                
             plt.subplot(layout[0], layout[1], i+1)
             
             # special case: plot ROC curve
             if m.lower() == 'roc':
-                x, y, _ = roc_curve(self.y_val, self.model.predict(self.X_val, batch_size=self.batch_size))
+                #x, y, _ = roc_curve(self.y_val, self.model.predict(self.X_val, batch_size=self.batch_size))
+                x, y, _ = roc_curve(self.y_val, self.latest_y_pred)
                 plt.plot(x, y)
                 plt.plot([0,1],[0,1],lw=0.5,color='black')
+            elif m.lower() == 'response':
+                y_pred = self.latest_y_pred.squeeze()
+                plt.hist([y_pred[self.y_val==0], y_pred[self.y_val==1]], histtype='step', bins=80, fill=True, alpha=0.2, range=(0,1))
             else:
-                plt.plot(xepochs[nskip:], self.history[m][nskip:], ls='--')
-                if 'val_'+m in self.history:
-                    plt.plot(xepochs[nskip:], self.history['val_'+m][nskip:])
+                if m == 'ks':
+                    plt.plot(xepochs[nskip:], self.history['val_ks_bg'][nskip:], color='C2', label='bg')
+                    plt.plot(xepochs[nskip:], self.history['val_ks_sig'][nskip:], color='C3', label='sig')
+                    plt.legend()
+                elif m.startswith('val'):
+                    plt.plot(xepochs[nskip:], self.history[m][nskip:], color='C1')
+                else:
+                    plt.plot(xepochs[nskip:], self.history[m][nskip:], color='C0', ls='--')
+                    if 'val_'+m in self.history:
+                        plt.plot(xepochs[nskip:], self.history['val_'+m][nskip:], color='C1')
                 plt.xlabel("Epoch")
                 plt.ylabel(m)
 

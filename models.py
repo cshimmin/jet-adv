@@ -7,18 +7,28 @@ from energyflow.archs import PFN
 import util
 import defs
 
+
+def _format_constituents(x):
+    pt,eta,phi = tf.split(x, 3, axis=-1)
+
+    is_valid = pt>0
+    zeros = tf.zeros_like(pt)
+    pt = tf.where(is_valid, pt, zeros)
+    eta = tf.where(is_valid, eta, zeros)
+    phi = tf.where(is_valid, phi, zeros)
+
+    phi_sin = tf.sin(phi)
+    phi_cos = tf.cos(phi)
+
+    return tf.concat([pt,eta,phi_sin,phi_cos], axis=-1)
+
+
 def mk_benchmark_LL(n_const, n_units=(256,256,256), dropout=None,
                     res=False, n_res_units=256, batch_norm=False,
                     shuffle_particles=False, randomize_phi=False, optimizer='adam'):
     classifier_input = layers.Input((n_const, 3))
     
-    def format_constituents(x):
-        pt,eta,phi = tf.split(x, 3, axis=-1)
-        phi_sin = tf.sin(phi)
-        phi_cos = tf.cos(phi)
-        return tf.concat([pt,eta,phi_sin,phi_cos], axis=-1)
-    
-    x = layers.Lambda(format_constituents)(classifier_input)
+    x = layers.Lambda(_format_constituents, name='phi_format')(classifier_input)
     x = layers.Flatten()(x)
     
     if res:
@@ -182,14 +192,8 @@ def mk_PFN(Phi_sizes=(128,128), F_sizes=(128,128), Phi_dropouts=0., F_dropouts=0
     pfn_in = layers.Input((defs.N_CONST,3))
     x = pfn_in
     
-        
-    def format_constituents(x):
-        pt,eta,phi = tf.split(x, 3, axis=-1)
-        phi_sin = tf.sin(phi)
-        phi_cos = tf.cos(phi)
-        return tf.concat([pt,eta,phi_sin,phi_cos], axis=-1)
     
-    x = layers.Lambda(format_constituents)(x) 
+    x = layers.Lambda(_format_constituents, name='phi_format')(x) 
     pfn_out = pfn_core.model(x)
     pfn = Model(pfn_in, pfn_out)
     pfn.compile(optimizer='adam', loss='binary_crossentropy')
