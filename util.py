@@ -344,6 +344,26 @@ class RandomizeJetPhi(layers.Layer):
     
     def compute_output_shape(self, input_shape):
         return input_shape
+    
+class RandomizeAz(layers.Layer):
+    def __init__(self, **kwargs):
+        super(RandomizeAz, self).__init__(**kwargs)
+    
+    def call(self, inputs, training=None):
+        pt, eta, phi = tf.split(inputs, 3, axis=-1)
+        
+        az = tf.random_uniform((tf.shape(pt)[0],1,1), -np.pi, np.pi)
+        
+        c = tf.cos(az)
+        s = tf.sin(az)
+        
+        eta_new = c*eta + s*phi
+        phi_new = -s*eta + c*phi
+        
+        return K.in_train_phase(tf.concat([pt, eta_new, phi_new], axis=-1), inputs, training=training)
+    
+    def compute_output_shape(self, input_shape):
+        return input_shape
 
 # Layer to compute jet 4-vector kinematics (pT, eta, phi, m) from input
 # list of constituents (pT,eta,phi)
@@ -356,6 +376,26 @@ class JetVector(layers.Layer):
     
     def compute_output_shape(self, input_shape):
         return (input_shape[0], 4)
+
+class CenterJet(layers.Layer):
+    def __init__(self, **kwargs):
+        super(CenterJet, self).__init__(**kwargs)
+    
+    def call(self, x):
+        xpt, xeta, xphi = tf.split(x, 3, axis=-1)
+    
+        jpt,jeta,jphi,jmass = tf.split(jet_tf(x), 4, axis=-1)
+        
+        xeta = xeta - tf.reshape(jeta, (-1,1,1))
+        xphi = xphi - tf.reshape(jphi, (-1,1,1))
+        
+        xeta = tf.where(xpt>0, xeta, tf.zeros_like(xeta))
+        xphi = tf.where(xpt>0, xphi, tf.zeros_like(xphi))
+        
+        return tf.concat([xpt,xeta,xphi], axis=-1)
+        
+    def compute_output_shape(self, input_shape):
+        return input_shape
 
 # Layer to compute jet ECF values, as well as  D2 from an
 # input list of constituents (pT, eta, phi)
@@ -382,7 +422,35 @@ class JetECF(layers.Layer):
     
     def compute_output_shape(self, input_shape):
         return (input_shape[0],4,)
+
+class AUCCB(callbacks.Callback):
+    def __init__(self, X_val, y_val, batch_size=512):
+        self.X_val = X_val
+        self.y_val = y_val
+        self.batch_size = batch_size
     
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        y_pred = self.model.predict(self.X_val, batch_size=self.batch_size)
+        logs['val_auc'] = roc_auc_score(self.y_val, y_pred)
+        
+class InitCB(callbacks.Callback):
+    def __init__(self, baseline, epochs, monitor='val_loss'):
+        self.baseline = baseline
+        self.epochs = epochs
+        self.monitor = monitor
+    
+    def on_train_begin(self, logs=None):
+        self.status = 'init'
+    
+    def on_epoch_end(self, epoch, logs=None):
+        if (epoch+1) == self.epochs:
+            if logs[self.monitor] > self.baseline:
+                self.model.stop_training = True
+                self.status = 'fail'
+                print("Metric %s has not reach baseline=%g by epoch %d, stopping training"%(self.monitor, self.baseline, self.epochs))
+            else:
+                self.status = 'pass'
 
 class HistoryCB(callbacks.Callback):
     def __init__(self, live_metrics=None, val_data=None, ks_ref=None, pt_ref=None, mass_ref=None, batch_size=512, **kwargs):
