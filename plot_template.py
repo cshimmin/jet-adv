@@ -135,6 +135,18 @@ custom_lines = [Line2D([0], [0], color='gray'),
 
 thresholds = np.linspace(0,0.99,100)
 
+T = np.expand_dims(thresholds, axis=0)
+
+nsig_before = np.sum(preds_val[(y_val==1)*pass_val] > T, axis=0)
+nbg_before = np.sum(preds_val[(y_val==0)*pass_val] > T, axis=0)
+nsig_after = np.sum(preds_adv[(y_val==1)*pass_adv] > T, axis=0)
+nbg_after = np.sum(preds_adv[(y_val==0)*pass_adv] > T, axis=0)
+nsig_rnd = np.sum(preds_rnd[(y_val==1)*pass_adv] > T, axis=0)
+nbg_rnd = np.sum(preds_rnd[(y_val==0)*pass_adv] > T, axis=0)
+
+nsig_total = np.sum((y_val==1)*pass_val)
+nbg_total = np.sum((y_val==0)*pass_val)
+
 plt.figure(figsize=(8,4))
 
 l1, = plt.plot(thresholds, pfn_sig_exp, color='darkorange', label=r'Low-level')
