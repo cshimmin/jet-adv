@@ -133,6 +133,8 @@ custom_lines = [Line2D([0], [0], color='gray'),
                ]
 
 
+thresholds = np.linspace(0,0.99,100)
+
 plt.figure(figsize=(8,4))
 
 l1, = plt.plot(thresholds, pfn_sig_exp, color='darkorange', label=r'Low-level')
