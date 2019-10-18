@@ -120,3 +120,43 @@ plt.ylabel("A.U.");
 
 plt.savefig('adv_compare_jd2_cls.pdf', bbox_inches='tight')
 
+
+
+
+####
+# plots for relative signifiance
+####
+from matplotlib.lines import Line2D
+custom_lines = [Line2D([0], [0], color='gray'),
+                Line2D([0], [0], color='gray', ls='--'),
+                Line2D([0], [0], color='gray', ls=':'),
+               ]
+
+
+plt.figure(figsize=(8,4))
+
+l1, = plt.plot(thresholds, pfn_sig_exp, color='darkorange', label=r'Low-level')
+plt.plot(thresholds, pfn_sig_obs, color='darkorange', ls='--')
+plt.plot(thresholds, pfn_sig_rnd, color='darkorange', ls=':')
+
+plt.axvline(thresholds[np.argmax(pfn_sig_exp)], ls='-', color='slategray', zorder=-1, lw=1)
+
+l2, = plt.plot(thresholds, ut_sig_exp, color='red', label=r'Low-level (undertrained)')
+plt.plot(thresholds, ut_sig_obs, color='red', ls='--')
+plt.plot(thresholds, ut_sig_rnd, color='red', ls=':')
+
+
+l4, = plt.plot(thresholds, hl_sig_exp, color='blue', label='High-level')
+plt.plot(thresholds, hl_sig_obs, color='blue', ls='--')
+plt.plot(thresholds, hl_sig_rnd, color='blue', ls=':')
+
+l3, = plt.plot(thresholds, ut2_sig_exp, color='mediumseagreen', label=r'Low-level (undertrained)')
+plt.plot(thresholds, ut2_sig_obs, color='mediumseagreen', ls='--')
+plt.plot(thresholds, ut2_sig_rnd, color='mediumseagreen', ls=':')
+
+plt.ylabel("Relative Discovery Significance")
+plt.xlabel("Classifier Threshold")
+first_legend = plt.legend(handles=[l1,l2,l3,l4], loc='upper left');
+plt.gca().add_artist(first_legend)
+plt.legend(custom_lines, ['Expected','Observed', 'Random'], loc='lower center', ncol=3);
+plt.savefig("signif_undertraining.pdf", bbox_inches='tight')
