@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 import pandas as pd
 import itertools as it
@@ -112,22 +113,28 @@ def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, unit=1, min_ntrk=None, m
         
     return np.array(ljets), np.array(consts)
 
-def format_dataset(bg, sig, validation_fraction=0.15, shuffle=False):
+def format_dataset(bg, sig, validation_fraction=0.15, test_fraction=0, shuffle=False):
     n_per_class = min(bg.shape[0], sig.shape[0])
     
     n_val = int(validation_fraction * n_per_class)
-    n_train = n_per_class - n_val
+    n_test = int(test_fraction * n_per_class)
+    n_train = n_per_class - n_val - n_test
     
     bg = bg[:n_per_class]
     sig = sig[:n_per_class]
     
-    X_train = np.concatenate([bg[:-n_val], sig[:-n_val]], axis=0)
+    X_train = np.concatenate([bg[:n_train], sig[:n_train]], axis=0)
     y_train = np.zeros(2*n_train)
     y_train[n_train:] = 1
     
-    X_val = np.concatenate([bg[-n_val:], sig[-n_val:]], axis=0)
+    X_val = np.concatenate([bg[n_train:n_train+n_val], sig[n_train:n_train+n_val]], axis=0)
     y_val = np.zeros(2*n_val)
     y_val[n_val:] = 1
+
+    if n_test > 0:
+        X_test = np.concatenate([bg[n_train+n_val:n_train+n_val+n_test], sig[n_train+n_val:n_train+n_val+n_test]], axis=0)
+        y_test = np.zeros(2*n_test)
+        y_test[n_test:] = 1
     
     if shuffle:
         idxs_train = np.arange(X_train.shape[0])
@@ -139,8 +146,17 @@ def format_dataset(bg, sig, validation_fraction=0.15, shuffle=False):
         np.random.shuffle(idxs_val)
         X_val = X_val[idxs_val]
         y_val = y_val[idxs_val]
+
+        if n_test > 0:
+            idxs_test = np.arange(X_test.shape[0])
+            np.random.shuffle(idxs_test)
+            X_test = X_test[idxs_test]
+            y_test = y_test[idxs_test]
     
-    return (X_train, y_train), (X_val, y_val)
+    if n_test > 0:
+        return (X_train, y_train), (X_val, y_val), (X_test, y_test)
+    else:
+        return (X_train, y_train), (X_val, y_val)
 
 # calculates ECF for a batch of jet constituents.
 # x should have a shape like [batch_axis, particle_axis, 3]
@@ -423,17 +439,122 @@ class JetECF(layers.Layer):
     def compute_output_shape(self, input_shape):
         return (input_shape[0],4,)
 
+class UndertrainCB(callbacks.Callback):
+    def __init__(self, threshold, monitor='val_auc', mode='less', grace_period=0, **kwargs):
+        super(UndertrainCB, self).__init__(**kwargs)
+        self.threshold = threshold
+        self.monitor = monitor
+        self.mode = mode
+        self.grace_period = grace_period
+        self.grace_count = 0
+
+    def on_epoch_end(self, epoch, logs=None):
+        val = logs[self.monitor]
+        if (self.mode == 'less' and val > self.threshold) or (self.mode == 'greater' and val < self.threshold):
+            self.grace_count += 1
+            logs['valid_%s'%self.monitor] = False
+            if self.grace_count > self.grace_period:
+                self.model.stop_training = True
+                print("Stopping for undertraining at epoch %d (%s = %g)" % (epoch, self.monitor, val))
+        else:
+            logs['valid_%s'%self.monitor] = True
+            self.grace_count = 0
+
 class AUCCB(callbacks.Callback):
-    def __init__(self, X_val, y_val, batch_size=512):
+    def __init__(self, X_val, y_val, batch_size=512, verbose=1, metric_name='val_auc'):
         self.X_val = X_val
         self.y_val = y_val
         self.batch_size = batch_size
+        self.verbose = verbose
+        self.metric_name = metric_name
     
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
         y_pred = self.model.predict(self.X_val, batch_size=self.batch_size)
-        logs['val_auc'] = roc_auc_score(self.y_val, y_pred)
+        logs[self.metric_name] = roc_auc_score(self.y_val, y_pred)
+        if self.verbose:
+            print(self.metric_name, logs[self.metric_name])
+            print("")
+            sys.stdout.flush()
+
+class KSCB(callbacks.Callback):
+    def __init__(self, X_val, y_val, y_ref, pt_ref, mass_ref, batch_size=256, verbose=1, **kwargs):
+        super(KSCB, self).__init__(**kwargs)
+        self.X_val = X_val
+        self.y_val = y_val
+        self.y_ref = y_ref
+        self.pt_ref = pt_ref
+        self.mass_ref = mass_ref
+        self.batch_size = batch_size
+        self.verbose = verbose
+
+        if len(self.y_val.shape) > 1:
+            self.y_val = self.y_val[:,0]
+        if len(self.y_ref.shape) > 1:
+            self.y_ref = self.y_ref[:,0]
+
+    def on_epoch_end(self, epoch, logs=None):
+        y_pred = self.model.predict(self.X_val, batch_size=self.batch_size)
+        if len(y_pred.shape) > 1:
+            y_pred = y_pred[:,0]
+
+        if self.y_ref is not None:
+            logs['val_y_ks'] = ks_2samp(self.y_ref.squeeze(), y_pred.squeeze())[0]
+            logs['val_y_ks_bg'] = ks_2samp(self.y_ref[self.y_val==0], y_pred[self.y_val==0])[0]
+            logs['val_y_ks_sig'] = ks_2samp(self.y_ref[self.y_val==1], y_pred[self.y_val==1])[0]
+            if self.verbose:
+                print("val_y_ks/bg/sig:     %.2e,%.2e,%.2e"%(logs['val_y_ks'],
+                    logs['val_y_ks_bg'],
+                    logs['val_y_ks_sig']))
         
+        if self.pt_ref is not None or self.mass_ref is not None:
+            xpred = self.model.adversary.predict(self.X_val,batch_size=self.batch_size)
+            jpred = self.model.calc.predict(xpred,batch_size=self.batch_size)
+            
+        if self.pt_ref is not None:
+            logs['val_pt_ks'] = ks_2samp(self.pt_ref, jpred[:,0])[0]
+            logs['val_pt_ks_bg'] = ks_2samp(self.pt_ref[self.y_val==0], jpred[self.y_val==0,0])[0]
+            logs['val_pt_ks_sig'] = ks_2samp(self.pt_ref[self.y_val==1], jpred[self.y_val==1,0])[0]
+            if self.verbose:
+                print("val_pt_ks/bg/sig:    %.2e,%.2e,%.2e"%(logs['val_pt_ks'],
+                    logs['val_pt_ks_bg'],
+                    logs['val_pt_ks_sig']))
+            
+        if self.mass_ref is not None:
+            logs['val_mass_ks'] = ks_2samp(self.mass_ref, jpred[:,0])[0]
+            logs['val_mass_ks_bg'] = ks_2samp(self.mass_ref[self.y_val==0], jpred[self.y_val==0,3])[0]
+            logs['val_mass_ks_sig'] = ks_2samp(self.mass_ref[self.y_val==1], jpred[self.y_val==1,3])[0]
+            if self.verbose:
+                print("val_mass_ks/bg/sig:  %.2e,%.2e,%.2e"%(logs['val_mass_ks'],
+                    logs['val_mass_ks_bg'],
+                    logs['val_mass_ks_sig']))
+        if self.verbose:
+            sys.stdout.flush()
+
+class BestWeightsCB(callbacks.Callback):
+    def __init__(self, monitor='loss', mode='min', **kwargs):
+        super(BestWeightsCB, self).__init__(**kwargs)
+
+        self.monitor = monitor
+        self.mode = mode
+        self.best_val = None
+        self.best_weights = None
+        self.best_epoch = -1
+
+    def on_epoch_end(self, epoch, logs):
+        valid = all([v for k,v in logs.items() if k.startswith('valid_')])
+        if (not valid) or (not self.model.stop_training):
+            # if we've stopped due to invalidation, don't consider
+            # this for best
+            return
+
+        val = logs[self.monitor]
+
+        if (self.best_val is None) or (self.mode == 'min' and val < self.best_val) or (self.mode == 'max' and val > self.best_val):
+            self.best_val = val
+            self.best_epoch = epoch
+            self.best_weights = self.model.get_weights()
+    
 class InitCB(callbacks.Callback):
     def __init__(self, baseline, epochs, monitor='val_loss'):
         self.baseline = baseline
