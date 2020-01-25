@@ -1,11 +1,13 @@
 import os
+import sys
 import numpy as np
-import pandas as pd
 import itertools as it
 import tensorflow as tf
+
 import keras.backend as K
 import keras.layers as layers
 from keras import callbacks
+
 from sklearn.metrics import roc_auc_score, roc_curve
 import matplotlib.pyplot as plt
 
@@ -13,8 +15,9 @@ from scipy.stats import ks_2samp
 
 import defs
 
-from IPython.display import clear_output
 
+# load QCD and Z-boson event data.
+# jet mass and pT cuts may be applied (units in TeV)
 def load_data(path='data', jet_mass_min=None, jet_pt_min=None):
     if jet_mass_min is None:
         jet_mass_min = defs.JET_MASS_MIN
@@ -43,9 +46,6 @@ def load_data(path='data', jet_mass_min=None, jet_pt_min=None):
     consts_sig[:,:,0][consts_sig[:,:,0]<defs.MIN_PT] = 0
 
 
-    #nc_bg = np.sum(bg_consts[:,:,0]>0, axis=-1)
-    #nc_sig = np.sum(sig_consts[:,:,0]>0, axis=-1)
-    
     return consts_bg, consts_sig, jets_bg, jets_sig
 
 
@@ -54,9 +54,7 @@ def load_data(path='data', jet_mass_min=None, jet_pt_min=None):
 # `consts` is a list containing the (pt, eta, phi) for the leading `ntrk` particles in the jet.
 
 def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, unit=1, min_ntrk=None, min_trk_pt=0, min_jet_mass=None, max_jet_mass=None, verbose=0):
-    #ljets = np.zeros((len(evts), 4))
     ljets = []
-    #consts = np.zeros((len(evts), ntrk, 3))
     consts = []
     
     if min_ntrk is None:
@@ -98,12 +96,8 @@ def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, unit=1, min_ntrk=None, m
         if max_jet_mass and j0.mass>max_jet_mass:
             continue
             
-        #ljets[i] = (j0.pt, j0.eta, j0.phi, j0.mass)
         ljets.append((j0.pt, j0.eta, j0.phi, j0.mass))
         
-        #consts[i][:nc,0] = c0[:nc]['pT']
-        #consts[i][:nc,1] = c0[:nc]['eta']
-        #consts[i][:nc,2] = c0[:nc]['phi']
         c = np.zeros((ntrk, 3))
         c[:nc,0] = c0[:nc]['pT']
         c[:nc,1] = c0[:nc]['eta']
@@ -112,22 +106,32 @@ def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, unit=1, min_ntrk=None, m
         
     return np.array(ljets), np.array(consts)
 
-def format_dataset(bg, sig, validation_fraction=0.15, shuffle=False):
+# given a set of background events, and a set of signal events
+# compose the largest balanced mixture of signal and background events
+# with corresponding labels.
+# partition the events and labels into train/val/test sets by the given fractions.
+def format_dataset(bg, sig, validation_fraction=0.15, test_fraction=0, shuffle=False):
     n_per_class = min(bg.shape[0], sig.shape[0])
     
     n_val = int(validation_fraction * n_per_class)
-    n_train = n_per_class - n_val
+    n_test = int(test_fraction * n_per_class)
+    n_train = n_per_class - n_val - n_test
     
     bg = bg[:n_per_class]
     sig = sig[:n_per_class]
     
-    X_train = np.concatenate([bg[:-n_val], sig[:-n_val]], axis=0)
+    X_train = np.concatenate([bg[:n_train], sig[:n_train]], axis=0)
     y_train = np.zeros(2*n_train)
     y_train[n_train:] = 1
     
-    X_val = np.concatenate([bg[-n_val:], sig[-n_val:]], axis=0)
+    X_val = np.concatenate([bg[n_train:n_train+n_val], sig[n_train:n_train+n_val]], axis=0)
     y_val = np.zeros(2*n_val)
     y_val[n_val:] = 1
+
+    if n_test > 0:
+        X_test = np.concatenate([bg[n_train+n_val:n_train+n_val+n_test], sig[n_train+n_val:n_train+n_val+n_test]], axis=0)
+        y_test = np.zeros(2*n_test)
+        y_test[n_test:] = 1
     
     if shuffle:
         idxs_train = np.arange(X_train.shape[0])
@@ -139,10 +143,19 @@ def format_dataset(bg, sig, validation_fraction=0.15, shuffle=False):
         np.random.shuffle(idxs_val)
         X_val = X_val[idxs_val]
         y_val = y_val[idxs_val]
-    
-    return (X_train, y_train), (X_val, y_val)
 
-# calculates ECF for a batch of jet constituents.
+        if n_test > 0:
+            idxs_test = np.arange(X_test.shape[0])
+            np.random.shuffle(idxs_test)
+            X_test = X_test[idxs_test]
+            y_test = y_test[idxs_test]
+    
+    if n_test > 0:
+        return (X_train, y_train), (X_val, y_val), (X_test, y_test)
+    else:
+        return (X_train, y_train), (X_val, y_val)
+
+# calculates ECF for a batch of jet constituents (numpy implementation)
 # x should have a shape like [batch_axis, particle_axis, 3]
 # the last axis should contain (pT, eta, phi)
 def ecf_numpy(N, beta, x, normalized=False):
@@ -192,7 +205,7 @@ def ecf_numpy(N, beta, x, normalized=False):
 
     return result
 
-# calculates ECF for a batch of jet constituents.
+# calculates ECF for a batch of jet constituents (tensorflow implementation)
 # x should have a shape like [batch_axis, particle_axis, 3]
 # the last axis should contain (pT, eta, phi)
 def ecf_tf(N, beta, x, normalized=False):
@@ -275,76 +288,8 @@ def jet_tf(x):
     
     return tf.concat([jet_pT, jet_eta, jet_phi, jet_mass], axis=-1)
 
-class AngleQuadrature(layers.Layer):
-    def __init__(self, idxs, axis=-1, **kwargs):
-        super(AngleQuadrature, self).__init__(**kwargs)
-        
-        if type(idxs) is int:
-            idxs = [idxs]
-        self.idxs = idxs
-        self.axis = axis
-        
-    def call(self, inputs, training=None):
-        features_in = tf.split(inputs, inputs.shape[self.axis], axis=self.axis)
-        features_out = []
-        for i,f in enumerate(features_in):
-            if i in self.idxs:
-                features_out.append(tf.sin(f))
-                features_out.append(tf.cos(f))
-            else:
-                features_out.append(f)
-        return tf.concat(features_out, axis=self.axis)
-    
-    def compute_output_shape(self, input_shape):
-        output_shape = np.array(input_shape)
-        output_shape[self.axis] += len(self.idxs)
-        return tuple(output_shape)
-
-# Layer to add a random angular offset per batch entry,
-# for a specific index or list of indices along the given axis
-class RandomizeAngle(layers.Layer):
-    def __init__(self, idxs, axis=-1, train_only=True, **kwargs):
-        super(RandomizeAngle, self).__init__(**kwargs)
-        if type(idxs) is int:
-            idxs = [idxs]
-        self.idxs = idxs
-        self.axis = axis
-        self.train_only = train_only
-    
-    def call(self, inputs, training=None):
-        #pt, eta, phi = tf.split(inputs, 3, axis=-1)
-        features_in = tf.split(inputs, inputs.shape[self.axis], axis=self.axis)
-        #phi_new = phi + tf.random_uniform((tf.shape(phi)[0],1,1),-np.pi,np.pi)
-        phi_offsets = tf.random_uniform((tf.shape(inputs)[0],) + (1,)*(len(inputs.shape)-1), -np.pi, np.pi)
-        features_noised = []
-        for i,f in enumerate(features_in):
-            if i in self.idxs:
-                features_noised.append(f + phi_offsets)
-            else:
-                features_noised.append(f)
-        noised = tf.concat(features_noised, axis=self.axis)
-        if self.train_only:
-            return K.in_train_phase(noised, inputs, training=training)
-        else:
-            return noised
-    
-    def compute_output_shape(self, input_shape):
-        return input_shape
-    
-class RandomizeJetPhi(layers.Layer):
-    def __init__(self, **kwargs):
-        super(RandomizeJetPhi, self).__init__(**kwargs)
-    
-    def call(self, inputs, training=None):
-        jet_features = tf.split(inputs, inputs.shape[1], axis=-1)
-        jet_phi = jet_features[2]
-        phi_new = jet_phi + tf.random_uniform((tf.shape(jet_phi)[0],1), -np.pi, np.pi)
-        noised = tf.concat(jet_features[:2] + [phi_new] + jet_features[3:], axis=-1)
-        return K.in_train_phase(noised, inputs, training=training)
-    
-    def compute_output_shape(self, input_shape):
-        return input_shape
-    
+# rotate constituent momenta by a random angle about the jet axis
+# expects as input shape (?, nconst, 3)
 class RandomizeAz(layers.Layer):
     def __init__(self, **kwargs):
         super(RandomizeAz, self).__init__(**kwargs)
@@ -377,6 +322,9 @@ class JetVector(layers.Layer):
     def compute_output_shape(self, input_shape):
         return (input_shape[0], 4)
 
+# Layer to center a jet's axis in eta-phi, i.e., to subtract
+# off the jet axis direction from each constituent's direction
+# expects input shape (?, nconst, 3)
 class CenterJet(layers.Layer):
     def __init__(self, **kwargs):
         super(CenterJet, self).__init__(**kwargs)
@@ -423,17 +371,135 @@ class JetECF(layers.Layer):
     def compute_output_shape(self, input_shape):
         return (input_shape[0],4,)
 
+# callback to specifically enfore undertraining by terminating
+# the training loop when the monitored metric exceeds a given threshold
+class UndertrainCB(callbacks.Callback):
+    def __init__(self, threshold, monitor='val_auc', mode='less', grace_period=0, **kwargs):
+        super(UndertrainCB, self).__init__(**kwargs)
+        self.threshold = threshold
+        self.monitor = monitor
+        self.mode = mode
+        self.grace_period = grace_period
+        self.grace_count = 0
+
+    def on_epoch_end(self, epoch, logs=None):
+        val = logs[self.monitor]
+        if (self.mode == 'less' and val > self.threshold) or (self.mode == 'greater' and val < self.threshold):
+            self.grace_count += 1
+            logs['valid_%s'%self.monitor] = False
+            if self.grace_count > self.grace_period:
+                self.model.stop_training = True
+                print("Stopping for undertraining at epoch %d (%s = %g)" % (epoch, self.monitor, val))
+        else:
+            logs['valid_%s'%self.monitor] = True
+            self.grace_count = 0
+
+# callback to compute AUC score on the given (validation) sample
+# at the end of each epoch.
+# the score is saved in the history logs with other metrics under the
+# specified metric name
 class AUCCB(callbacks.Callback):
-    def __init__(self, X_val, y_val, batch_size=512):
+    def __init__(self, X_val, y_val, batch_size=512, verbose=1, metric_name='val_auc'):
         self.X_val = X_val
         self.y_val = y_val
         self.batch_size = batch_size
+        self.verbose = verbose
+        self.metric_name = metric_name
     
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
         y_pred = self.model.predict(self.X_val, batch_size=self.batch_size)
-        logs['val_auc'] = roc_auc_score(self.y_val, y_pred)
+        logs[self.metric_name] = roc_auc_score(self.y_val, y_pred)
+        if self.verbose:
+            print(self.metric_name, logs[self.metric_name])
+            print("")
+            sys.stdout.flush()
+
+# callback to compute the Kolmogorov-Smirnoff 2-sample score between
+# the predicted and reference (validation) distributions
+class KSCB(callbacks.Callback):
+    def __init__(self, X_val, y_val, y_ref, pt_ref, mass_ref, batch_size=256, verbose=1, **kwargs):
+        super(KSCB, self).__init__(**kwargs)
+        self.X_val = X_val
+        self.y_val = y_val
+        self.y_ref = y_ref
+        self.pt_ref = pt_ref
+        self.mass_ref = mass_ref
+        self.batch_size = batch_size
+        self.verbose = verbose
+
+        if len(self.y_val.shape) > 1:
+            self.y_val = self.y_val[:,0]
+        if len(self.y_ref.shape) > 1:
+            self.y_ref = self.y_ref[:,0]
+
+    def on_epoch_end(self, epoch, logs=None):
+        y_pred = self.model.predict(self.X_val, batch_size=self.batch_size)
+        if len(y_pred.shape) > 1:
+            y_pred = y_pred[:,0]
+
+        if self.y_ref is not None:
+            logs['val_y_ks'] = ks_2samp(self.y_ref.squeeze(), y_pred.squeeze())[0]
+            logs['val_y_ks_bg'] = ks_2samp(self.y_ref[self.y_val==0], y_pred[self.y_val==0])[0]
+            logs['val_y_ks_sig'] = ks_2samp(self.y_ref[self.y_val==1], y_pred[self.y_val==1])[0]
+            if self.verbose:
+                print("val_y_ks/bg/sig:     %.2e,%.2e,%.2e"%(logs['val_y_ks'],
+                    logs['val_y_ks_bg'],
+                    logs['val_y_ks_sig']))
         
+        if self.pt_ref is not None or self.mass_ref is not None:
+            xpred = self.model.adversary.predict(self.X_val,batch_size=self.batch_size)
+            jpred = self.model.calc.predict(xpred,batch_size=self.batch_size)
+            
+        if self.pt_ref is not None:
+            logs['val_pt_ks'] = ks_2samp(self.pt_ref, jpred[:,0])[0]
+            logs['val_pt_ks_bg'] = ks_2samp(self.pt_ref[self.y_val==0], jpred[self.y_val==0,0])[0]
+            logs['val_pt_ks_sig'] = ks_2samp(self.pt_ref[self.y_val==1], jpred[self.y_val==1,0])[0]
+            if self.verbose:
+                print("val_pt_ks/bg/sig:    %.2e,%.2e,%.2e"%(logs['val_pt_ks'],
+                    logs['val_pt_ks_bg'],
+                    logs['val_pt_ks_sig']))
+            
+        if self.mass_ref is not None:
+            logs['val_mass_ks'] = ks_2samp(self.mass_ref, jpred[:,0])[0]
+            logs['val_mass_ks_bg'] = ks_2samp(self.mass_ref[self.y_val==0], jpred[self.y_val==0,3])[0]
+            logs['val_mass_ks_sig'] = ks_2samp(self.mass_ref[self.y_val==1], jpred[self.y_val==1,3])[0]
+            if self.verbose:
+                print("val_mass_ks/bg/sig:  %.2e,%.2e,%.2e"%(logs['val_mass_ks'],
+                    logs['val_mass_ks_bg'],
+                    logs['val_mass_ks_sig']))
+        if self.verbose:
+            sys.stdout.flush()
+
+# callback to store the weights corresponding to the best validation epoch
+class BestWeightsCB(callbacks.Callback):
+    def __init__(self, monitor='loss', mode='min', **kwargs):
+        super(BestWeightsCB, self).__init__(**kwargs)
+
+        self.monitor = monitor
+        self.mode = mode
+        self.best_val = None
+        self.best_weights = None
+        self.best_epoch = -1
+
+    def on_epoch_end(self, epoch, logs):
+        valid = all([v for k,v in logs.items() if k.startswith('valid_')])
+        if (not valid) or (not self.model.stop_training):
+            # if we've stopped due to invalidation, don't consider
+            # this for best
+            return
+
+        val = logs[self.monitor]
+
+        if (self.best_val is None) or (self.mode == 'min' and val < self.best_val) or (self.mode == 'max' and val > self.best_val):
+            self.best_val = val
+            self.best_epoch = epoch
+            self.best_weights = self.model.get_weights()
+    
+# callback to monitor metrics during initialization, to ensure
+# a certain threshold is surpassed early within the first few epochs.
+# E.g. to flag models with loss values that explode early on due
+# to poor initialization.
 class InitCB(callbacks.Callback):
     def __init__(self, baseline, epochs, monitor='val_loss'):
         self.baseline = baseline
@@ -452,6 +518,8 @@ class InitCB(callbacks.Callback):
             else:
                 self.status = 'pass'
 
+# callback that makes plots of lots of metrics during training
+# and updates them live in ipythonb notebooks
 class HistoryCB(callbacks.Callback):
     def __init__(self, live_metrics=None, val_data=None, ks_ref=None, pt_ref=None, mass_ref=None, batch_size=512, **kwargs):
         super(HistoryCB, self).__init__(**kwargs)
@@ -508,6 +576,7 @@ class HistoryCB(callbacks.Callback):
         
         
         if self.live_metrics:
+            from IPython.display import clear_output
             clear_output(wait=True)
             if 'val_auc' in self.live_metrics:
                 print("Validation AUC:", self.history['val_auc'][-1])
@@ -556,38 +625,3 @@ class HistoryCB(callbacks.Callback):
                 plt.xlabel("Epoch")
                 plt.ylabel(m)
 
-class PolarToRect(layers.Layer):
-    def __init__(self, **kwargs):
-        super(PolarToRect, self).__init__(**kwargs)
-        
-    def call(self, x):
-        pT,eta,phi=tf.split(x,3,axis=-1) #axis = 2 because it is a list of particles, then a list of properties per particle
-        px = pT*tf.cos(phi)
-        py = pT*tf.sin(phi)
-        pz = pT*(0.5*(tf.exp(eta)-tf.exp(-eta))) #no tf.sinh in my version
-        #E = pT*(0.5*(tf.exp(eta)+tf.exp(-eta))) #no tf.cosh in my version
-        
-        return tf.concat([px,py,pz], axis=-1)
-    
-    def compute_output_shape(self, input_shape):
-        return input_shape
-    
-class RectToPolar(layers.Layer):
-    def __init__(self, **kwargs):
-        super(RectToPolar, self).__init__(**kwargs)
-    
-    def call(self, x):
-        px, py, pz = tf.split(x,3,axis=-1)
-        
-        pT2 = tf.square(px) + tf.square(py)
-        p2 = pT2 + tf.square(pz)
-        pmag = tf.sqrt(p2)
-        
-        pT = tf.sqrt(pT2)
-        eta = tf.atanh(pz / (pmag + K.epsilon()))
-        phi = tf.atan2(py,px)
-        
-        return tf.concat([pT, eta, phi], axis=-1)
-    
-    def compute_output_shape(self, input_shape):
-        return input_shape

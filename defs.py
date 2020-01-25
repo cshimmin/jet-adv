@@ -35,6 +35,17 @@ BENCHMARK_PFN_ARGS = dict(
     randomize_phi = True,
 )
 
+BENCHMARK_EFN_ARGS = dict(
+    #Phi_sizes = (100,128),
+    #F_sizes = (100, 100),
+    use_EFN       = True,
+    Phi_sizes     = (256,256,8,),
+    F_sizes       = (256,256,256,),
+    Phi_dropouts  = 0.,
+    F_dropouts    = 0.,
+    randomize_phi = True,
+)
+
 BENCHMARK_HL_ARGS = dict(
     features   = ('pt','eta','mass','D2',),
     n_layers   = 3,
