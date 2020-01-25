@@ -1,9 +1,9 @@
 import tensorflow as tf
+
 import keras
 from keras import layers
 from keras.models import Model
 import keras.backend as K
-
 import numpy as np
 
 from energyflow.archs import PFN, EFN
@@ -19,10 +19,11 @@ def _format_constituents(x):
     zeros = tf.zeros_like(pt)
     pt = tf.where(is_valid, pt, zeros)
     eta = tf.where(is_valid, eta, zeros)
-    phi = tf.where(is_valid, phi, zeros)
 
-    phi_sin = tf.sin(phi)
-    phi_cos = tf.cos(phi)
+    # express phi angle in quadrature to obviate
+    # issues with wraparound/boundaries
+    phi_sin = tf.where(is_valid, tf.sin(phi), zeros)
+    phi_cos = tf.where(is_valid, tf.cos(phi), zeros)
 
     return tf.concat([pt,eta,phi_sin,phi_cos], axis=-1)
 
@@ -30,7 +31,7 @@ def _format_constituents(x):
 def mk_benchmark_LL(n_const, n_units=(256,256,256), dropout=None,
                     res=False, n_res_units=256, batch_norm=False,
                     shuffle_particles=False, randomize_phi=False, optimizer='adam',
-                    center_jets=False):
+                    center_jets=True):
     classifier_input = layers.Input((n_const, 3))
     x = classifier_input
     
@@ -191,59 +192,76 @@ def mk_benchmark_HL(features=('pt','eta','phi','mass',), n_dense=(256,256,256), 
     
     return classifier
 
-def mk_PFN(Phi_sizes=(128,128), F_sizes=(128,128), Phi_dropouts=0., F_dropouts=0.,
-           randomize_phi=False, use_EFN=False, center_jets=False, latent_act='relu',
+# This convenience function constructs a model which wraps
+# the EFN/PFN models from energyflow package.
+# The wrapper adds layers at the input to center and (optionally)
+# randomly rotate jet constituents.
+# Note that this centering operation is done in-GPU rather than
+# pre-processing, since the adversary is able to alter the
+# overall eta/phi offsets of a jet.
+def mk_PFN(Phi_sizes=(128,128), F_sizes=(128,128),
+           use_EFN=False, center_jets=True,
            latent_dropout=0., randomize_az=False):
-    Phi_acts = ['relu']*(len(Phi_sizes)-1) + [latent_act]
-    #Phi_acts = [layers.LeakyReLU()]*(len(Phi_sizes)-1) + [latent_act]
+
+    # set up either an Energyflow or Particleflow network from the
+    # energyflow package
     if use_EFN:
         efn_core = EFN(input_dim=3, Phi_sizes=Phi_sizes, F_sizes=F_sizes,
-                       Phi_acts=Phi_acts, loss='binary_crossentropy', output_dim=1, output_act='sigmoid',
+                       loss='binary_crossentropy', output_dim=1, output_act='sigmoid',
                        latent_dropout=latent_dropout)
     else:
         pfn_core = PFN(input_dim=4, Phi_sizes=Phi_sizes,F_sizes=F_sizes,
-                       Phi_acts=Phi_acts, loss='binary_crossentropy', output_dim=1, output_act='sigmoid',
+                       loss='binary_crossentropy', output_dim=1, output_act='sigmoid',
                        latent_dropout=latent_dropout)
 
+
+    # input: constituents' pt/eta/phi
     pfn_in = layers.Input((defs.N_CONST,3))
     x = pfn_in
     
+    # optionally, center the constituents about the jet axis,
+    # then apply a random azimutal rotation about that axis
     if center_jets:
         x = util.CenterJet()(x)
         if randomize_az:
             x = util.RandomizeAz()(x)
         
+    # format the centered constituents by masking empty items and
+    # converting phi->sin(phi),cos(phi).
+    # This is done to prevent adversarial perturbations causing phi
+    # to either wrap around or go out of range.
     x = layers.Lambda(_format_constituents, name='phi_format')(x) 
+
     if use_EFN:
+        # if we are using the EFN model, we have to split up
+        # the pT and angular parts of the constituents
         def getpt(x):
+            # return just the pT for each constituent
             xpt, _, _, _ = tf.split(x, 4, axis=-1)
             return xpt
         def getangle(x):
-            _, xeta, xphi0, xphi1 = tf.split(x, 4, axis=-1)
-            return tf.concat([xeta, xphi0, xphi1], axis=-1)
+            # return the eta, sin(phi), cos(phi) for each constituent
+            _, xeta, xphi_s, xphi_c = tf.split(x, 4, axis=-1)
+            return tf.concat([xeta, xphi_s, xphi_c], axis=-1)
+
         xpt = layers.Lambda(getpt)(x)
         xangle = layers.Lambda(getangle)(x)
+
+        # apply the PFN model to the pt and angular inputs
         pfn_out = efn_core.model([xpt,xangle])
+
+        # also the EFN model comes with an extra tensor dimension
+        # which we need to remove:
         pfn_out = layers.Lambda(lambda x: tf.squeeze(x, axis=-1))(pfn_out)
         print(pfn_out.shape)
     else:
         pfn_out = pfn_core.model(x)
         print(pfn_out.shape)
+
     pfn = Model(pfn_in, pfn_out)
     pfn.compile(optimizer='adam', loss='binary_crossentropy')
     
-    pfn_aug_in = layers.Input((defs.N_CONST,3))
-    x = pfn_aug_in
-    
-    if randomize_phi == True:
-        x = util.RandomizeAngle(2)(x)
-    
-    pfn_aug_out = pfn(x)
-    pfn_aug = Model(pfn_aug_in, pfn_aug_out)
-    pfn_aug.compile(optimizer='adam', loss='binary_crossentropy')
-    
-    pfn_aug.nonaug = pfn
-    return pfn_aug
+    return pfn
 
 def mk_adversary(target_model, n_units=(300,300,300,300), epsilons=(1,1,1),
         input_shape=None, center_jets=True):

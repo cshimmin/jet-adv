@@ -1,12 +1,13 @@
 import os
 import sys
 import numpy as np
-import pandas as pd
 import itertools as it
 import tensorflow as tf
+
 import keras.backend as K
 import keras.layers as layers
 from keras import callbacks
+
 from sklearn.metrics import roc_auc_score, roc_curve
 import matplotlib.pyplot as plt
 
@@ -14,7 +15,6 @@ from scipy.stats import ks_2samp
 
 import defs
 
-from IPython.display import clear_output
 
 def load_data(path='data', jet_mass_min=None, jet_pt_min=None):
     if jet_mass_min is None:
@@ -44,9 +44,6 @@ def load_data(path='data', jet_mass_min=None, jet_pt_min=None):
     consts_sig[:,:,0][consts_sig[:,:,0]<defs.MIN_PT] = 0
 
 
-    #nc_bg = np.sum(bg_consts[:,:,0]>0, axis=-1)
-    #nc_sig = np.sum(sig_consts[:,:,0]>0, axis=-1)
-    
     return consts_bg, consts_sig, jets_bg, jets_sig
 
 
@@ -55,9 +52,7 @@ def load_data(path='data', jet_mass_min=None, jet_pt_min=None):
 # `consts` is a list containing the (pt, eta, phi) for the leading `ntrk` particles in the jet.
 
 def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, unit=1, min_ntrk=None, min_trk_pt=0, min_jet_mass=None, max_jet_mass=None, verbose=0):
-    #ljets = np.zeros((len(evts), 4))
     ljets = []
-    #consts = np.zeros((len(evts), ntrk, 3))
     consts = []
     
     if min_ntrk is None:
@@ -99,12 +94,8 @@ def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, unit=1, min_ntrk=None, m
         if max_jet_mass and j0.mass>max_jet_mass:
             continue
             
-        #ljets[i] = (j0.pt, j0.eta, j0.phi, j0.mass)
         ljets.append((j0.pt, j0.eta, j0.phi, j0.mass))
         
-        #consts[i][:nc,0] = c0[:nc]['pT']
-        #consts[i][:nc,1] = c0[:nc]['eta']
-        #consts[i][:nc,2] = c0[:nc]['phi']
         c = np.zeros((ntrk, 3))
         c[:nc,0] = c0[:nc]['pT']
         c[:nc,1] = c0[:nc]['eta']
@@ -629,6 +620,7 @@ class HistoryCB(callbacks.Callback):
         
         
         if self.live_metrics:
+            from IPython.display import clear_output
             clear_output(wait=True)
             if 'val_auc' in self.live_metrics:
                 print("Validation AUC:", self.history['val_auc'][-1])
