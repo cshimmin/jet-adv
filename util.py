@@ -16,6 +16,8 @@ from scipy.stats import ks_2samp
 import defs
 
 
+# load QCD and Z-boson event data.
+# jet mass and pT cuts may be applied (units in TeV)
 def load_data(path='data', jet_mass_min=None, jet_pt_min=None):
     if jet_mass_min is None:
         jet_mass_min = defs.JET_MASS_MIN
@@ -104,6 +106,10 @@ def cluster_jets(evts, R=1.0, ntrk=16, min_jet_pt=1600, unit=1, min_ntrk=None, m
         
     return np.array(ljets), np.array(consts)
 
+# given a set of background events, and a set of signal events
+# compose the largest balanced mixture of signal and background events
+# with corresponding labels.
+# partition the events and labels into train/val/test sets by the given fractions.
 def format_dataset(bg, sig, validation_fraction=0.15, test_fraction=0, shuffle=False):
     n_per_class = min(bg.shape[0], sig.shape[0])
     
@@ -149,7 +155,7 @@ def format_dataset(bg, sig, validation_fraction=0.15, test_fraction=0, shuffle=F
     else:
         return (X_train, y_train), (X_val, y_val)
 
-# calculates ECF for a batch of jet constituents.
+# calculates ECF for a batch of jet constituents (numpy implementation)
 # x should have a shape like [batch_axis, particle_axis, 3]
 # the last axis should contain (pT, eta, phi)
 def ecf_numpy(N, beta, x, normalized=False):
@@ -199,7 +205,7 @@ def ecf_numpy(N, beta, x, normalized=False):
 
     return result
 
-# calculates ECF for a batch of jet constituents.
+# calculates ECF for a batch of jet constituents (tensorflow implementation)
 # x should have a shape like [batch_axis, particle_axis, 3]
 # the last axis should contain (pT, eta, phi)
 def ecf_tf(N, beta, x, normalized=False):
@@ -282,76 +288,8 @@ def jet_tf(x):
     
     return tf.concat([jet_pT, jet_eta, jet_phi, jet_mass], axis=-1)
 
-class AngleQuadrature(layers.Layer):
-    def __init__(self, idxs, axis=-1, **kwargs):
-        super(AngleQuadrature, self).__init__(**kwargs)
-        
-        if type(idxs) is int:
-            idxs = [idxs]
-        self.idxs = idxs
-        self.axis = axis
-        
-    def call(self, inputs, training=None):
-        features_in = tf.split(inputs, inputs.shape[self.axis], axis=self.axis)
-        features_out = []
-        for i,f in enumerate(features_in):
-            if i in self.idxs:
-                features_out.append(tf.sin(f))
-                features_out.append(tf.cos(f))
-            else:
-                features_out.append(f)
-        return tf.concat(features_out, axis=self.axis)
-    
-    def compute_output_shape(self, input_shape):
-        output_shape = np.array(input_shape)
-        output_shape[self.axis] += len(self.idxs)
-        return tuple(output_shape)
-
-# Layer to add a random angular offset per batch entry,
-# for a specific index or list of indices along the given axis
-class RandomizeAngle(layers.Layer):
-    def __init__(self, idxs, axis=-1, train_only=True, **kwargs):
-        super(RandomizeAngle, self).__init__(**kwargs)
-        if type(idxs) is int:
-            idxs = [idxs]
-        self.idxs = idxs
-        self.axis = axis
-        self.train_only = train_only
-    
-    def call(self, inputs, training=None):
-        #pt, eta, phi = tf.split(inputs, 3, axis=-1)
-        features_in = tf.split(inputs, inputs.shape[self.axis], axis=self.axis)
-        #phi_new = phi + tf.random_uniform((tf.shape(phi)[0],1,1),-np.pi,np.pi)
-        phi_offsets = tf.random_uniform((tf.shape(inputs)[0],) + (1,)*(len(inputs.shape)-1), -np.pi, np.pi)
-        features_noised = []
-        for i,f in enumerate(features_in):
-            if i in self.idxs:
-                features_noised.append(f + phi_offsets)
-            else:
-                features_noised.append(f)
-        noised = tf.concat(features_noised, axis=self.axis)
-        if self.train_only:
-            return K.in_train_phase(noised, inputs, training=training)
-        else:
-            return noised
-    
-    def compute_output_shape(self, input_shape):
-        return input_shape
-    
-class RandomizeJetPhi(layers.Layer):
-    def __init__(self, **kwargs):
-        super(RandomizeJetPhi, self).__init__(**kwargs)
-    
-    def call(self, inputs, training=None):
-        jet_features = tf.split(inputs, inputs.shape[1], axis=-1)
-        jet_phi = jet_features[2]
-        phi_new = jet_phi + tf.random_uniform((tf.shape(jet_phi)[0],1), -np.pi, np.pi)
-        noised = tf.concat(jet_features[:2] + [phi_new] + jet_features[3:], axis=-1)
-        return K.in_train_phase(noised, inputs, training=training)
-    
-    def compute_output_shape(self, input_shape):
-        return input_shape
-    
+# rotate constituent momenta by a random angle about the jet axis
+# expects as input shape (?, nconst, 3)
 class RandomizeAz(layers.Layer):
     def __init__(self, **kwargs):
         super(RandomizeAz, self).__init__(**kwargs)
@@ -384,6 +322,9 @@ class JetVector(layers.Layer):
     def compute_output_shape(self, input_shape):
         return (input_shape[0], 4)
 
+# Layer to center a jet's axis in eta-phi, i.e., to subtract
+# off the jet axis direction from each constituent's direction
+# expects input shape (?, nconst, 3)
 class CenterJet(layers.Layer):
     def __init__(self, **kwargs):
         super(CenterJet, self).__init__(**kwargs)
@@ -430,6 +371,8 @@ class JetECF(layers.Layer):
     def compute_output_shape(self, input_shape):
         return (input_shape[0],4,)
 
+# callback to specifically enfore undertraining by terminating
+# the training loop when the monitored metric exceeds a given threshold
 class UndertrainCB(callbacks.Callback):
     def __init__(self, threshold, monitor='val_auc', mode='less', grace_period=0, **kwargs):
         super(UndertrainCB, self).__init__(**kwargs)
@@ -451,6 +394,10 @@ class UndertrainCB(callbacks.Callback):
             logs['valid_%s'%self.monitor] = True
             self.grace_count = 0
 
+# callback to compute AUC score on the given (validation) sample
+# at the end of each epoch.
+# the score is saved in the history logs with other metrics under the
+# specified metric name
 class AUCCB(callbacks.Callback):
     def __init__(self, X_val, y_val, batch_size=512, verbose=1, metric_name='val_auc'):
         self.X_val = X_val
@@ -468,6 +415,8 @@ class AUCCB(callbacks.Callback):
             print("")
             sys.stdout.flush()
 
+# callback to compute the Kolmogorov-Smirnoff 2-sample score between
+# the predicted and reference (validation) distributions
 class KSCB(callbacks.Callback):
     def __init__(self, X_val, y_val, y_ref, pt_ref, mass_ref, batch_size=256, verbose=1, **kwargs):
         super(KSCB, self).__init__(**kwargs)
@@ -522,6 +471,7 @@ class KSCB(callbacks.Callback):
         if self.verbose:
             sys.stdout.flush()
 
+# callback to store the weights corresponding to the best validation epoch
 class BestWeightsCB(callbacks.Callback):
     def __init__(self, monitor='loss', mode='min', **kwargs):
         super(BestWeightsCB, self).__init__(**kwargs)
@@ -546,6 +496,10 @@ class BestWeightsCB(callbacks.Callback):
             self.best_epoch = epoch
             self.best_weights = self.model.get_weights()
     
+# callback to monitor metrics during initialization, to ensure
+# a certain threshold is surpassed early within the first few epochs.
+# E.g. to flag models with loss values that explode early on due
+# to poor initialization.
 class InitCB(callbacks.Callback):
     def __init__(self, baseline, epochs, monitor='val_loss'):
         self.baseline = baseline
@@ -564,6 +518,8 @@ class InitCB(callbacks.Callback):
             else:
                 self.status = 'pass'
 
+# callback that makes plots of lots of metrics during training
+# and updates them live in ipythonb notebooks
 class HistoryCB(callbacks.Callback):
     def __init__(self, live_metrics=None, val_data=None, ks_ref=None, pt_ref=None, mass_ref=None, batch_size=512, **kwargs):
         super(HistoryCB, self).__init__(**kwargs)
@@ -669,38 +625,3 @@ class HistoryCB(callbacks.Callback):
                 plt.xlabel("Epoch")
                 plt.ylabel(m)
 
-class PolarToRect(layers.Layer):
-    def __init__(self, **kwargs):
-        super(PolarToRect, self).__init__(**kwargs)
-        
-    def call(self, x):
-        pT,eta,phi=tf.split(x,3,axis=-1) #axis = 2 because it is a list of particles, then a list of properties per particle
-        px = pT*tf.cos(phi)
-        py = pT*tf.sin(phi)
-        pz = pT*(0.5*(tf.exp(eta)-tf.exp(-eta))) #no tf.sinh in my version
-        #E = pT*(0.5*(tf.exp(eta)+tf.exp(-eta))) #no tf.cosh in my version
-        
-        return tf.concat([px,py,pz], axis=-1)
-    
-    def compute_output_shape(self, input_shape):
-        return input_shape
-    
-class RectToPolar(layers.Layer):
-    def __init__(self, **kwargs):
-        super(RectToPolar, self).__init__(**kwargs)
-    
-    def call(self, x):
-        px, py, pz = tf.split(x,3,axis=-1)
-        
-        pT2 = tf.square(px) + tf.square(py)
-        p2 = pT2 + tf.square(pz)
-        pmag = tf.sqrt(p2)
-        
-        pT = tf.sqrt(pT2)
-        eta = tf.atanh(pz / (pmag + K.epsilon()))
-        phi = tf.atan2(py,px)
-        
-        return tf.concat([pT, eta, phi], axis=-1)
-    
-    def compute_output_shape(self, input_shape):
-        return input_shape
