@@ -90,12 +90,20 @@ if __name__ == "__main__":
             print(sys.stdout.flush())
 
         if args.arch in ('efn', 'pfn'):
-            kwargs = {
-                    'use_EFN': args.arch=='efn',
+            model_args = {
                     'Phi_sizes': list(map(int,args.Phi_sizes.split(','))),
                     'F_sizes': list(map(int,args.F_sizes.split(','))),
+                    'use_EFN': args.arch=='efn',
+                    'center_jets': True,
+                    'latent_dropout': 0.,
+                    'randomize_az': False,
                 }
-            model = models.mk_PFN(**kwargs)
+            model = models.mk_PFN(**model_args)
+            argsfile = os.path.join(args.out, 'model_args.pkl')
+            print("Saving model args to", argsfile)
+            sys.stdout.flush()
+            with open(argsfile, 'wb') as f:
+                pickle.dump(model_args, f)
 
         # set up callbacks for classifier training
         callbacks = []
